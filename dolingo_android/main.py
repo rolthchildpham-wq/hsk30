@@ -46,17 +46,19 @@ PEACH = (1.00, 0.92, 0.85, 1)
 LEMON = (1.00, 0.96, 0.80, 1)
 FONT = "Roboto"
 CJK_FONT = FONT
+CJK_BUNDLE = os.path.join(ROOT, "assets", "fonts", "NotoSansCJKsc-Regular.otf")
 
 
 def select_fonts():
     global FONT, CJK_FONT
-    # Android has native Vietnamese and CJK fonts. Register explicitly so Kivy
-    # does not replace Chinese characters with missing-glyph boxes.
+    # Use bundled CJK OTF first; Android .ttc often fails with SDL2/Kivy.
+    # Keep Vietnamese text separate, rendered with a Latin font.
     common = [
         "/system/fonts/NotoSans-Regular.ttf",
         "/system/fonts/Roboto-Regular.ttf",
     ]
     cjk = [
+        CJK_BUNDLE,
         "/system/fonts/NotoSansCJK-Regular.ttc",
         "/system/fonts/NotoSansSC-Regular.otf",
         "/system/fonts/NotoSansCJKsc-Regular.otf",
@@ -282,8 +284,10 @@ class Picture(Widget):
                 rect(-24,-37,48,5,white)
 
 
-def load_courses():
+def load_courses(dictionary=None):
     groups = defaultdict(list)
+    missing_hsk = 0
+    missing_english = 0
     with open(VI_PATH, "r", encoding="utf-8") as stream:
         vi = json.load(stream)
     with open(CVDICT_PATH, "r", encoding="utf-8") as stream:
@@ -295,11 +299,20 @@ def load_courses():
         word = str(item.get("word") or "").strip()
         if not group.startswith("HSK ") or not word:
             continue
+        headword = word.split("|")[0]
+        definition = clean_vi_gloss(vi["hsk"].get(headword, "")
+                                    or item.get("vi")
+                                    or cvdict.get(str(item.get("id") or ""), ""))
+        if not definition and dictionary is not None and dictionary.available:
+            definition = clean_vi_gloss(dictionary.exact_meaning(
+                headword, str(item.get("traditional") or "").split("|")[0]))
+        if not definition:
+            missing_hsk += 1
         groups[group].append({
             "word": word,
             "reading": str(item.get("pinyin") or ""),
             "meaning": str(item.get("en") or "").strip(),
-            "vi": clean_vi_gloss(vi["hsk"].get(word.split("|")[0], "") or item.get("vi") or cvdict.get(str(item.get("id") or ""), "")),
+            "vi": definition,
             "picture": ILLUSTRATED_WORDS.get(word.split("|")[0], "") or ICON_BY_WORD.get(word.split("|")[0], ""),
             "other": str(item.get("traditional") or "").strip(),
             "source": "HSK 3.0 - ivankra/hsk30",
@@ -312,17 +325,21 @@ def load_courses():
         word = str(item.get("word") or "").strip()
         meaning = str(item.get("definition") or "").strip()
         if level in ("1", "2", "3") and word and meaning:
+            english_vi = clean_vi_gloss(vi["english"].get(word.lower(), ""))
+            if not english_vi:
+                missing_english += 1
             groups["English " + level].append({
                 "word": word,
                 "reading": str(item.get("pos") or ""),
                 "meaning": meaning,
-                "vi": clean_vi_gloss(vi["english"].get(word.lower(), "")),
+                "vi": english_vi,
                 "picture": ILLUSTRATED_WORDS.get(word.lower(), "") or ICON_BY_WORD.get(word.lower(), ""),
                 "other": ", ".join(item.get("synonyms") or []),
                 "source": "carryword/english-vocabulary (MIT)",
                 "course": "English"
             })
-    return dict(groups), len(hsk), len(english.get("entries", []))
+    return (dict(groups), len(hsk), len(english.get("entries", [])),
+            missing_hsk, missing_english)
 
 
 class DolingoApp(App):
@@ -334,6 +351,8 @@ class DolingoApp(App):
         self.saved_words = []
         self.hsk_count = 0
         self.en_count = 0
+        self.missing_hsk = 0
+        self.missing_english = 0
         self.mode = "dashboard"
         self.group = "HSK 1"
         self.deck = []
@@ -383,7 +402,8 @@ class DolingoApp(App):
 
     def _initialize(self, *_):
         try:
-            self.data, self.hsk_count, self.en_count = load_courses()
+            (self.data, self.hsk_count, self.en_count,
+             self.missing_hsk, self.missing_english) = load_courses(self.dictionary)
             self.status.text = ("%s từ HSK 3.0  •  %s mục English  •  Offline" %
                                 (self.hsk_count, self.en_count))
             self.change_group("HSK 1")
@@ -598,10 +618,14 @@ class DolingoApp(App):
         self.body.add_widget(button("BỎ LƯU THẺ" if key in saved else "LƯU FLASHCARD",
                                     self.toggle_flashcard_saved, bg=MINT, fg=GREEN))
         if item["other"]:
-            self.body.add_widget(label(
-                ("Phồn thể: " if item["course"]=="HSK" else "Đồng nghĩa: ") +
-                item["other"][:120], 14, MUTED, height=52,
-                font=CJK_FONT if item["course"]=="HSK" else FONT))
+            if item["course"] == "HSK":
+                # Never mix Vietnamese labels with CJK-only font glyph runs.
+                self.body.add_widget(label("CHỮ PHỒN THỂ", 12, GREEN, True, 24))
+                self.body.add_widget(label(item["other"][:100], 17, MUTED,
+                                           height=43, font=CJK_FONT))
+            else:
+                self.body.add_widget(label("Đồng nghĩa: " + item["other"][:120],
+                                           14, MUTED, height=52))
         controls = BoxLayout(size_hint_y=None, height=dp(54), spacing=dp(9))
         controls.add_widget(button("TRỘN LẠI", self.shuffle, bg=MINT, fg=GREEN))
         controls.add_widget(button("TỪ TIẾP  →", self.next_word, bg=GREEN))
@@ -760,10 +784,10 @@ class DolingoApp(App):
             for entry in matches:
                 card = Panel(color=WHITE, radius=14, orientation="vertical",
                              padding=dp(10), spacing=dp(4), size_hint_y=None,
-                             height=dp(172))
-                heading = entry["simplified"] + "  [" + entry["pinyin"] + "]"
-                card.add_widget(label(heading[:95], 19, GREEN, True, 46,
+                             height=dp(202))
+                card.add_widget(label(entry["simplified"][:60], 19, GREEN, True, 30,
                                       font=CJK_FONT))
+                card.add_widget(label(entry["pinyin"][:95], 13, MUTED, height=25))
                 card.add_widget(label(clean_vi_gloss(entry["meaning"])[:250], 14, INK, height=67))
                 card.add_widget(button("LƯU VÀO SỔ TAY", partial(save_word, entry),
                                        bg=MINT, fg=GREEN, height=42, size=13))
