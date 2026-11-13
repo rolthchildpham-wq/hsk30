@@ -1,0 +1,39 @@
+name: Build Dolingo Android APK
+on:
+  push:
+    branches:
+      - dolingo-android-apk
+    paths:
+      - 'dolingo_android/**'
+      - '.github/workflows/build-dolingo-apk.yml'
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare Android build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip python3-venv autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev cmake libffi-dev libssl-dev
+          python3 -m pip install --user 'buildozer==1.5.0' 'cython==0.29.37' 'setuptools<76'
+      - name: Copy official HSK dataset into app
+        run: |
+          mkdir -p dolingo_android/data
+          cp hsk30.csv dolingo_android/data/hsk30.csv
+          test -s dolingo_android/data/hsk30.csv
+      - name: Build Android debug APK
+        working-directory: dolingo_android
+        env:
+          ACCEPT_ANDROID_SDK_LICENSE: '1'
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          buildozer -v android debug
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Dolingo-HSK-Android-APK
+          path: dolingo_android/bin/*.apk
+          if-no-files-found: error
+          retention-days: 30
