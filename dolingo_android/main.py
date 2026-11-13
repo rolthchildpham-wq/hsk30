@@ -1066,17 +1066,29 @@ class DolingoApp(App):
                                       height=53, size=14))
 
     def lookup_english(self, word):
+        entry = None
         for level in ("English 1", "English 2", "English 3"):
-            entries = [r for r in self.data.get(level, [])
-                       if r["word"].casefold() == word.casefold()]
-            if entries:
-                entry=entries[0]
-                self.status.text = entry["word"] + " • " + (
-                    entry.get("ipa") or "Chưa có IPA") + " • " + (
-                    entry.get("vi") or entry.get("meaning") or "Chưa có nghĩa")
-                self.pronounce_item(entry)
-                return
-        self.status.text = "Từ chưa có trong từ điển English hiện tại: " + word
+            entry = next((r for r in self.data.get(level, [])
+                          if r["word"].casefold() == word.casefold()), None)
+            if entry:
+                break
+        if not entry:
+            self.status.text = "Từ chưa có trong dữ liệu English: " + word
+            return
+        body = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(10))
+        body.add_widget(label(entry["word"], 24, GREEN, True, 65, align="center"))
+        body.add_widget(label(entry.get("ipa") or "IPA chưa có dữ liệu", 17,
+                              MUTED, height=40, align="center"))
+        body.add_widget(label(entry.get("vi") or "Chưa có nghĩa tiếng Việt",
+                              16, INK, height=90))
+        body.add_widget(label((entry.get("meaning") or "")[:180], 13,
+                              MUTED, height=100))
+        body.add_widget(button("NGHE PHÁT ÂM",
+                               partial(self.pronounce_item, entry), bg=SKY, fg=GREEN))
+        popup = Popup(title="Tra từ English", content=body,
+                      size_hint=(0.9, 0.72), auto_dismiss=True)
+        body.add_widget(button("ĐÓNG", lambda: popup.dismiss(), bg=GREEN))
+        popup.open()
 
     def speak_text(self, text, language):
         ok, message = self.pronouncer.speak(text, language)
