@@ -23,7 +23,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip python3-venv autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev cmake libffi-dev libssl-dev
-          python3 -m pip install --user 'buildozer==1.5.0' 'cython==0.29.37' 'setuptools<76'
+          python3 -m pip install --user 'buildozer==1.5.0' 'cython==0.29.37' 'setuptools<76' 'Pillow>=9,<12'
       - name: Copy official HSK dataset into app
         run: |
           mkdir -p dolingo_android/data
@@ -40,9 +40,24 @@ jobs:
           assert db.execute("select count(*) from entries where simplified='学习'").fetchone()[0] > 0
           print('CVDICT data ready:', n)
           PY
+      - name: Generate and verify offline illustrations
+        run: |
+          python3 dolingo_android/build_illustrations.py
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          d = Path('dolingo_android/assets/illustrations')
+          files = list(d.glob('*.png'))
+          assert len(files) >= 24, len(files)
+          assert (d / 'food.png').is_file()
+          for file in files:
+              with Image.open(file) as im:
+                  im.verify()
+          print('Illustrations validated:', len(files))
+          PY
       - name: Check bundled data and app source before Android build
         run: |
-          python3 -m py_compile dolingo_android/main.py dolingo_android/cvdict_search.py dolingo_android/build_cvdict.py
+          python3 -m py_compile dolingo_android/main.py dolingo_android/cvdict_search.py dolingo_android/build_cvdict.py dolingo_android/build_illustrations.py
           python3 - <<'PY'
           import json
           from pathlib import Path
