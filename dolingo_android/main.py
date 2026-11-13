@@ -9,7 +9,8 @@ from functools import partial
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.text import LabelBase
-from kivy.graphics import Color, RoundedRectangle
+from kivy.graphics import Color, RoundedRectangle, Ellipse, Rectangle, Line, Triangle
+from kivy.uix.widget import Widget
 from kivy.metrics import dp
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
@@ -22,6 +23,7 @@ from kivy.uix.textinput import TextInput
 ROOT = os.path.dirname(os.path.abspath(__file__))
 HSK_PATH = os.path.join(ROOT, "data", "words_hsk30_real.json")
 EN_PATH = os.path.join(ROOT, "data", "english_learner_thesaurus.json")
+VI_PATH = os.path.join(ROOT, "data", "vi_starter.json")
 BG = (0.975, 0.966, 0.943, 1)
 INK = (0.11, 0.19, 0.17, 1)
 GREEN = (0.064, 0.24, 0.19, 1)
@@ -101,8 +103,144 @@ def button(text, callback, bg=GREEN, fg=WHITE, height=50, size=15):
     return widget
 
 
+
+# Draw simple, offline, word-specific pictures using Kivy shapes.
+# Only supported concepts receive artwork; never show unrelated stock imagery.
+ICON_WORDS = {
+    "sun": "日 太阳 sun sunshine 阳光",
+    "home": "家 房子 房间 house home 家里 回家",
+    "book": "书 读 读书 课本 书店 book read study learn school 学校",
+    "tree": "树 木 tree forest 林",
+    "flower": "花 flower",
+    "cup": "茶 水 牛奶 杯子 杯 喝 drink water tea milk coffee",
+    "phone": "电话 手机 打电话 phone telephone mobile",
+    "car": "车 汽车 打车 开车 car bus taxi",
+    "plane": "飞机 机场 机票 plane airplane airport travel",
+    "food": "饭 吃 吃饭 米饭 面包 包子 菜 食物 food eat bread",
+    "heart": "爱 喜欢 爱好 love heart",
+    "cloud": "云 天气 雨 cloud rain weather",
+    "clock": "时间 时 点 今天 明天 yesterday today time",
+    "computer": "电脑 computer laptop"
+}
+ICON_BY_WORD = {}
+for _kind, _words in ICON_WORDS.items():
+    for _word in _words.split():
+        ICON_BY_WORD[_word] = _kind
+
+
+class Picture(Widget):
+    def __init__(self, kind, **kwargs):
+        super().__init__(**kwargs)
+        self.kind = kind
+        self.bind(pos=self._paint, size=self._paint)
+        Clock.schedule_once(self._paint, 0)
+
+    def _paint(self, *_):
+        self.canvas.clear()
+        x, y = self.pos
+        w, h = self.size
+        cx, cy = x+w/2, y+h/2
+        unit = min(w, h)/100.0
+        def circle(px, py, r, shade):
+            Color(*shade)
+            Ellipse(pos=(cx+(px-r)*unit,cy+(py-r)*unit),
+                    size=(2*r*unit,2*r*unit))
+        def rect(px,py,rw,rh,shade):
+            Color(*shade)
+            Rectangle(pos=(cx+px*unit,cy+py*unit),
+                      size=(rw*unit,rh*unit))
+        def poly(points,shade):
+            Color(*shade)
+            Triangle(points=[v*unit+(cx if i%2==0 else cy)
+                             for i,v in enumerate(points)])
+        dark=(0.11,0.31,0.24,1); gold=(0.99,0.73,0.31,1)
+        pink=(0.94,0.42,0.43,1); sky=(0.40,0.75,0.92,1)
+        white=(1,1,1,1)
+        with self.canvas:
+            if self.kind=="sun":
+                circle(0,0,25,gold)
+                Color(*gold)
+                for i in range(12):
+                    import math
+                    ang=i*math.pi/6
+                    ax,ay=math.cos(ang),math.sin(ang)
+                    Line(points=[cx+ax*30*unit,cy+ay*30*unit,
+                                 cx+ax*39*unit,cy+ay*39*unit],width=dp(3))
+            elif self.kind=="home":
+                rect(-29,-28,58,48,MINT)
+                poly([-35,14, 0,43, 35,14],gold)
+                rect(-7,-28,14,30,dark)
+                rect(-24,-3,12,12,sky)
+                rect(12,-3,12,12,sky)
+            elif self.kind=="book":
+                rect(-35,-26,32,53,white)
+                rect(3,-26,32,53,white)
+                rect(-2,-26,4,54,gold)
+                Color(*dark)
+                for yy in [-10,0,10]:
+                    Line(points=[cx-29*unit,cy+yy*unit,cx-9*unit,cy+yy*unit],width=dp(2))
+                    Line(points=[cx+9*unit,cy+yy*unit,cx+29*unit,cy+yy*unit],width=dp(2))
+            elif self.kind=="tree":
+                rect(-6,-34,12,40,(0.49,0.31,0.18,1))
+                circle(-15,13,23,MINT);circle(17,12,22,(0.27,0.67,0.48,1))
+                circle(0,28,24,(0.17,0.53,0.35,1))
+            elif self.kind=="flower":
+                rect(-3,-37,6,47,dark)
+                for px,py in [(-20,10),(20,10),(0,-8),(0,28)]:
+                    circle(px,py,15,pink)
+                circle(0,10,12,gold)
+                poly([-2,-10,-20,-23,-4,-21],MINT)
+            elif self.kind=="cup":
+                rect(-24,-23,46,36,white)
+                rect(-27,13,51,5,gold)
+                Color(*gold)
+                Line(circle=(cx+22*unit,cy-4*unit,16*unit,270,90),width=dp(4))
+                for px in [-10,0,10]:
+                    Color(*white)
+                    Line(points=[cx+px*unit,cy+23*unit,cx+(px-5)*unit,cy+37*unit],
+                         width=dp(2))
+            elif self.kind=="phone":
+                rect(-20,-39,40,79,white)
+                rect(-15,-26,30,55,sky)
+                circle(0,-33,3,dark)
+            elif self.kind=="car":
+                rect(-33,-17,66,29,gold)
+                poly([-20,12,-8,28,17,28],sky)
+                poly([-20,12,17,28,26,12],sky)
+                circle(-21,-20,11,dark);circle(21,-20,11,dark)
+                circle(-21,-20,4,white);circle(21,-20,4,white)
+            elif self.kind=="plane":
+                poly([-39,-5,41,4,-39,13],white)
+                poly([-5,3,-23,34,22,3],sky)
+                poly([-5,1,-23,-28,22,1],sky)
+            elif self.kind=="food":
+                circle(0,-3,34,white)
+                circle(0,-3,26,gold)
+                circle(-10,4,10,pink)
+                circle(11,-7,10,MINT)
+            elif self.kind=="heart":
+                circle(-14,12,20,pink);circle(14,12,20,pink)
+                poly([-33,8,33,8,0,-39],pink)
+            elif self.kind=="cloud":
+                circle(-22,0,16,white);circle(-1,12,24,white)
+                circle(22,0,18,white);rect(-27,-16,53,22,white)
+            elif self.kind=="clock":
+                circle(0,0,36,white)
+                circle(0,0,31,MINT)
+                Color(*dark)
+                Line(points=[cx,cy,cx,cy+21*unit],width=dp(3))
+                Line(points=[cx,cy,cx+16*unit,cy-8*unit],width=dp(3))
+            elif self.kind=="computer":
+                rect(-40,-22,80,55,dark)
+                rect(-35,-17,70,45,sky)
+                rect(-5,-34,10,12,white)
+                rect(-24,-37,48,5,white)
+
+
 def load_courses():
     groups = defaultdict(list)
+    with open(VI_PATH, "r", encoding="utf-8") as stream:
+        vi = json.load(stream)
     with open(HSK_PATH, "r", encoding="utf-8") as stream:
         hsk = json.load(stream)
     for item in hsk:
@@ -114,6 +252,8 @@ def load_courses():
             "word": word,
             "reading": str(item.get("pinyin") or ""),
             "meaning": str(item.get("en") or "").strip(),
+            "vi": str(item.get("vi") or vi["hsk"].get(word.split("|")[0], "")).strip(),
+            "picture": ICON_BY_WORD.get(word.split("|")[0], ""),
             "other": str(item.get("traditional") or "").strip(),
             "source": "HSK 3.0 - ivankra/hsk30",
             "course": "HSK"
@@ -129,6 +269,8 @@ def load_courses():
                 "word": word,
                 "reading": str(item.get("pos") or ""),
                 "meaning": meaning,
+                "vi": str(vi["english"].get(word.lower(), "")).strip(),
+                "picture": ICON_BY_WORD.get(word.lower(), ""),
                 "other": ", ".join(item.get("synonyms") or []),
                 "source": "carryword/english-vocabulary (MIT)",
                 "course": "English"
@@ -281,17 +423,25 @@ class DolingoApp(App):
         self.body.add_widget(label("Đã xem %d từ  •  Từ %d / %d" %
                                    (viewed, self.index+1, len(self.deck)),
                                    14, GREEN, True, 32))
-        card = self._card(385)
-        card.add_widget(label("FLASHCARD  •  " + self.group, 12, GOLD, True, 32))
-        card.add_widget(label(item["word"], 38 if len(item["word"]) < 14 else 27,
-                              WHITE, True, 85,
+        card = self._card(510 if item["picture"] else 385)
+        card.add_widget(label("FLASHCARD  •  " + self.group, 12, GOLD, True, 29))
+        if item["picture"]:
+            picture_bg = Panel(color=(0.15, 0.37, 0.29, 1), radius=16,
+                               size_hint_y=None, height=dp(125), padding=dp(5))
+            picture_bg.add_widget(Picture(item["picture"]))
+            card.add_widget(picture_bg)
+        card.add_widget(label(item["word"], 36 if len(item["word"]) < 14 else 26,
+                              WHITE, True, 65,
                               font=CJK_FONT if item["course"]=="HSK" else FONT,
                               align="center"))
-        card.add_widget(label(item["reading"], 18, GOLD, False, 45, align="center"))
-        card.add_widget(label("NGHĨA / DEFINITION", 12, MINT, True, 26))
-        desc = item["meaning"] or "Chưa có nghĩa được xác minh"
-        card.add_widget(label(desc[:450], 15, WHITE, height=140, align="center"))
-        card.add_widget(label("Nguồn: " + item["source"], 11, MINT, height=25,
+        card.add_widget(label(item["reading"], 17, GOLD, False, 32, align="center"))
+        card.add_widget(label("NGHĨA TIẾNG VIỆT", 12, MINT, True, 24))
+        card.add_widget(label(item["vi"] or "Chưa có bản dịch tiếng Việt",
+                              18, WHITE, True, 54, align="center"))
+        card.add_widget(label("ENGLISH DEFINITION", 11, MINT, True, 22))
+        desc = item["meaning"] or "English meaning pending review"
+        card.add_widget(label(desc[:330], 13, WHITE, height=105, align="center"))
+        card.add_widget(label("Nguồn: " + item["source"], 10, MINT, height=21,
                               align="center"))
         self.body.add_widget(card)
         if item["other"]:
