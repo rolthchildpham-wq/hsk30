@@ -37,7 +37,7 @@ class VoiceRecorder:
             callback(False)
 
     def start(self):
-        if self.MediaRecorder is None if hasattr(self, "MediaRecorder") else True:
+        if not hasattr(self, "MediaRecorder"):
             return False, self.error or "Microphone không có sẵn."
         try:
             os.makedirs(self.directory, exist_ok=True)
