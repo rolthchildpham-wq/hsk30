@@ -83,3 +83,25 @@ assert "sqlite3,otf,ttf" in spec
 assert 'CJK_BUNDLE,' in code and 'font=CJK_FONT' in code
 print("PASS: screenshots, Vietnamese gloss cleanup, 24 PNG asset generation, "
       "fixed navigation, 11,092 HSK entries and flashcard/CVDICT integration")
+
+# ChineseSkill-inspired original practice engine: tones, SRS, and speech wiring.
+from learning_tools import tone_of_pinyin, review_update, is_due
+assert tone_of_pinyin("wǔ fàn") == 3
+assert tone_of_pinyin("ma1") == 1
+assert tone_of_pinyin("mā") == 1
+assert tone_of_pinyin("mǎ") == 3
+assert tone_of_pinyin("xué xí") == 2
+assert tone_of_pinyin("") is None
+review = review_update({}, "good", "2026-11-13")
+assert review["due"] == "2026-11-14", review
+assert is_due(review, "2026-11-13") is False
+assert is_due(review, "2026-11-14") is True
+assert review_update(review, "again", "2026-11-15")["due"] == "2026-11-15"
+assert "def pronounce_item(self, item)" in code
+assert "def render_tone_practice(self)" in code
+assert "def mark_review(self, item, grade)" in code
+assert "Pronouncer()" in code
+assert 'item["reading"] or "Pinyin chưa có dữ liệu"' in code
+from tts_android import Pronouncer
+assert hasattr(Pronouncer, "speak")
+print("PASS: Pinyin tones, spaced review, TTS wiring and learning controls")
