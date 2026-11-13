@@ -33,7 +33,7 @@ assert mapping["书"] == "book"
 art = ROOT / "assets" / "illustrations"
 for item in ("午饭", "苹果", "书", "学校", "猫"):
     assert (art / (mapping[item] + ".png")).is_file(), item
-assert "self.fixed_nav.add_widget(tabs)" in code
+assert "self.bottom_nav.add_widget(" in code\nassert "self.root_panel.add_widget(self.bottom_nav)" in code\nassert "def render_library(self)" in code\nassert "def render_profile(self)" in code
 assert 'self.root_panel.add_widget(self.fixed_nav)' in code
 assert "self.flashcard_flipped = not self.flashcard_flipped" in code
 assert 'self.progress["_flashcard_saved"]' in code
