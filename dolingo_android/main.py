@@ -617,6 +617,17 @@ class DolingoApp(App):
                                           LEMON, self.open_dictionary))
         self.body.add_widget(row)
 
+        self.body.add_widget(label("LUYỆN KỸ NĂNG", 15, GREEN, True, 36))
+        skills = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(153))
+        skills.add_widget(self._action_card("Đọc hiểu", "Chạm từ để tra",
+                                             SKY, lambda: self.change_mode("reading")))
+        skills.add_widget(self._action_card("Luyện nói", "Nghe và tự ghi âm",
+                                             PINK, lambda: self.change_mode("speaking")))
+        self.body.add_widget(skills)
+        self.body.add_widget(button("BÀI TẬP ĐIỀN TỪ", lambda: self.change_mode("fill"),
+                                    bg=PEACH, fg=GREEN, height=49))
+        self.body.add_widget(button("BÀI TẬP GHÉP CẶP", lambda: self.change_mode("match"),
+                                    bg=MINT, fg=GREEN, height=49))
         self.body.add_widget(button("XEM TOÀN BỘ THƯ VIỆN HỌC TẬP",
                                     lambda: self.change_mode("library"),
                                     bg=MINT, fg=GREEN, height=52))
