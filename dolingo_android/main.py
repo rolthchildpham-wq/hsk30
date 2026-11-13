@@ -1,4 +1,4 @@
-"""Dolingo 1.1: offline HSK and English mobile lessons."""
+"""Dolingo 1.2.1: pastel study dashboard, flashcards and CVDICT offline."""
 import json
 import os
 import random
@@ -27,13 +27,19 @@ HSK_PATH = os.path.join(ROOT, "data", "words_hsk30_real.json")
 EN_PATH = os.path.join(ROOT, "data", "english_learner_thesaurus.json")
 VI_PATH = os.path.join(ROOT, "data", "vi_starter.json")
 CVDICT_PATH = os.path.join(ROOT, "data", "vi_hsk_cvdict.json")
-BG = (0.975, 0.966, 0.943, 1)
-INK = (0.11, 0.19, 0.17, 1)
-GREEN = (0.064, 0.24, 0.19, 1)
-MINT = (0.83, 0.92, 0.85, 1)
-GOLD = (0.96, 0.73, 0.36, 1)
+BG = (0.974, 0.980, 0.996, 1)
+INK = (0.16, 0.20, 0.29, 1)
+GREEN = (0.10, 0.36, 0.32, 1)  # Deep teal for legible labels
+ACCENT = (0.27, 0.65, 0.53, 1)
+MINT = (0.86, 0.96, 0.91, 1)
+GOLD = (1.00, 0.84, 0.52, 1)
 WHITE = (1, 1, 1, 1)
-MUTED = (0.44, 0.50, 0.46, 1)
+MUTED = (0.39, 0.44, 0.52, 1)
+PINK = (1.00, 0.88, 0.92, 1)
+LAVENDER = (0.92, 0.90, 0.99, 1)
+SKY = (0.85, 0.93, 1.00, 1)
+PEACH = (1.00, 0.92, 0.85, 1)
+LEMON = (1.00, 0.96, 0.80, 1)
 FONT = "Roboto"
 CJK_FONT = FONT
 
@@ -292,7 +298,7 @@ class DolingoApp(App):
         self.saved_words = []
         self.hsk_count = 0
         self.en_count = 0
-        self.mode = "learn"
+        self.mode = "dashboard"
         self.group = "HSK 1"
         self.deck = []
         self.index = 0
@@ -306,9 +312,7 @@ class DolingoApp(App):
         self.xp = int(self.progress.get("_xp", 0))
         self.streak = int(self.progress.get("_streak", 0))
         self.root_panel = Panel(color=BG, radius=0, orientation="vertical")
-        self.root_panel.add_widget(label("DOLINGO", 25, GREEN, True, 58, align="center"))
-        self.root_panel.add_widget(label("HỌC NGOẠI NGỮ MỖI NGÀY", 12, MUTED,
-                                         False, 26, align="center"))
+
         self.status = label("Đang chuẩn bị bài học...", 14, MUTED, height=40,
                             align="center")
         self.root_panel.add_widget(self.status)
@@ -345,6 +349,7 @@ class DolingoApp(App):
             self.status.text = ("%s từ HSK 3.0  •  %s mục English  •  Offline" %
                                 (self.hsk_count, self.en_count))
             self.change_group("HSK 1")
+            self.change_mode("dashboard")
         except Exception as exc:
             traceback.print_exc()
             self.status.text = "Không tải được dữ liệu học"
@@ -353,42 +358,119 @@ class DolingoApp(App):
             self.body.add_widget(button("Thử lại", lambda: self._initialize()))
 
     def _top_navigation(self):
-        course = Panel(color=WHITE, radius=16, size_hint_y=None, height=dp(60),
-                       padding=dp(7), spacing=dp(8))
-        a = button("HSK 3.0", lambda: self.change_group("HSK 1"),
-                   bg=GREEN if self.group.startswith("HSK") else MINT,
-                   fg=WHITE if self.group.startswith("HSK") else GREEN, height=45)
-        b = button("ENGLISH", lambda: self.change_group("English 1"),
-                   bg=GREEN if self.group.startswith("English") else MINT,
-                   fg=WHITE if self.group.startswith("English") else GREEN, height=45)
-        course.add_widget(a)
-        course.add_widget(b)
-        self.body.add_widget(course)
+        """Compact mobile navigation, keeping content on-screen at phone widths."""
+        bar = Panel(color=WHITE, radius=0, size_hint_y=None, height=dp(55),
+                    padding=[dp(15), 0, dp(15), 0], spacing=dp(6))
+        bar.add_widget(label("DOLINGO", 23, GREEN, True, 50))
+        bar.add_widget(label("STUDY STUDIO  •  1.2.1", 11, MUTED, False,
+                             50, align="right"))
+        self.body.add_widget(bar)
 
-        levels = ["HSK " + str(n) for n in range(1, 10)] if self.group.startswith("HSK") else [
-            "English 1", "English 2", "English 3"]
-        levels = [name for name in levels if name in self.data]
-        picker = Spinner(text=self.group, values=levels, font_name=FONT,
-                         font_size=dp(16), color=INK, background_normal="",
-                         background_color=MINT, size_hint_y=None, height=dp(50))
-        picker.bind(text=lambda _inst, name: self.change_group(name)
-                    if name != self.group else None)
-        self.body.add_widget(picker)
+        tabs = Panel(color=WHITE, radius=17, size_hint_y=None, height=dp(61),
+                     padding=dp(6), spacing=dp(5))
+        for title, mode in (("HOME", "dashboard"), ("HỌC", "learn"),
+                            ("LUYỆN", "quiz"), ("ĐÃ LƯU", "saved")):
+            active = self.mode == mode
+            tabs.add_widget(button(title, partial(self.change_mode, mode),
+                                   bg=GREEN if active else BG,
+                                   fg=WHITE if active else INK,
+                                   height=49, size=12))
+        self.body.add_widget(tabs)
 
-        tools = Panel(color=WHITE, radius=16, size_hint_y=None, height=dp(58),
-                      padding=dp(6), spacing=dp(6))
-        tools.add_widget(button("HỌC TỪ", lambda: self.change_mode("learn"),
-                                bg=GREEN if self.mode=="learn" else MINT,
-                                fg=WHITE if self.mode=="learn" else GREEN, height=46))
-        tools.add_widget(button("LUYỆN TẬP", lambda: self.change_mode("quiz"),
-                                bg=GREEN if self.mode=="quiz" else MINT,
-                                fg=WHITE if self.mode=="quiz" else GREEN, height=46))
-        tools.add_widget(button("TỪ ĐIỂN", self.open_dictionary,
-                                bg=MINT, fg=GREEN, height=46))
-        tools.add_widget(button("ĐÃ LƯU", lambda: self.change_mode("saved"),
-                                bg=GREEN if self.mode=="saved" else MINT,
-                                fg=WHITE if self.mode=="saved" else GREEN, height=46))
-        self.body.add_widget(tools)
+        # Only show lesson selectors when they are needed; dashboard stays clean.
+        if self.mode != "dashboard":
+            subjects = Panel(color=WHITE, radius=15, size_hint_y=None,
+                             height=dp(60), padding=dp(6), spacing=dp(8))
+            subjects.add_widget(button("HSK 3.0",
+                                       lambda: self.change_group("HSK 1"),
+                                       bg=MINT if self.group.startswith("HSK") else BG,
+                                       fg=GREEN, height=46, size=13))
+            subjects.add_widget(button("ENGLISH",
+                                       lambda: self.change_group("English 1"),
+                                       bg=SKY if self.group.startswith("English") else BG,
+                                       fg=GREEN, height=46, size=13))
+            subjects.add_widget(button("CVDICT", self.open_dictionary,
+                                       bg=LEMON, fg=GREEN, height=46, size=13))
+            self.body.add_widget(subjects)
+            levels = (["HSK " + str(i) for i in range(1, 10)]
+                      if self.group.startswith("HSK")
+                      else ["English 1", "English 2", "English 3"])
+            levels = [name for name in levels if name in self.data]
+            selector = Spinner(text=self.group, values=levels, font_name=FONT,
+                               font_size=dp(15), color=INK, background_normal="",
+                               background_color=LAVENDER, size_hint_y=None,
+                               height=dp(49))
+            selector.bind(text=lambda _inst, name:
+                          self.change_group(name) if name != self.group else None)
+            self.body.add_widget(selector)
+
+    def _stat_card(self, heading, value, note, shade):
+        card = Panel(color=shade, radius=19, orientation="vertical",
+                     size_hint_y=None, height=dp(125),
+                     padding=[dp(14), dp(13), dp(10), dp(12)],
+                     spacing=dp(2))
+        card.add_widget(label(heading, 12, GREEN, True, 25))
+        card.add_widget(label(str(value), 27, INK, True, 47))
+        card.add_widget(label(note, 11, MUTED, height=25))
+        return card
+
+    def _action_card(self, heading, note, shade, callback):
+        card = Panel(color=shade, radius=18, orientation="vertical",
+                     size_hint_y=None, height=dp(153),
+                     padding=[dp(11), dp(12), dp(11), dp(11)], spacing=dp(4))
+        card.add_widget(label(heading, 15, GREEN, True, 33))
+        card.add_widget(label(note, 12, INK, height=37))
+        card.add_widget(button("MỞ NGAY", callback, bg=GREEN, fg=WHITE,
+                               height=45, size=12))
+        return card
+
+    def render_dashboard(self):
+        hero = Panel(color=LAVENDER, radius=23, orientation="vertical",
+                     size_hint_y=None, height=dp(192), spacing=dp(7),
+                     padding=[dp(17), dp(16), dp(17), dp(15)])
+        hero.add_widget(label("CHÀO MỪNG TRỞ LẠI!", 12, GREEN, True, 28))
+        hero.add_widget(label("Hôm nay học gì?", 25, INK, True, 42))
+        hero.add_widget(label("Mỗi ngày một chút, tiến bộ thật nhiều.",
+                              13, MUTED, height=30))
+        hero.add_widget(button("TIẾP TỤC  •  " + self.group,
+                               lambda: self.change_mode("learn"),
+                               bg=GREEN, fg=WHITE, height=50, size=14))
+        self.body.add_widget(hero)
+
+        self.body.add_widget(label("THÀNH TÍCH CỦA BẠN", 15, GREEN, True, 36))
+        row = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(125))
+        row.add_widget(self._stat_card("KINH NGHIỆM", self.xp, "Điểm XP", PEACH))
+        row.add_widget(self._stat_card("CHUỖI ĐÚNG", self.streak, "Câu liên tiếp", SKY))
+        self.body.add_widget(row)
+        row = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(125))
+        saved_count = len(self.progress.get("_flashcard_saved", []))
+        row.add_widget(self._stat_card("THẺ ĐÃ LƯU", saved_count,
+                                       "Để ôn tập", PINK))
+        row.add_widget(self._stat_card("ĐÃ HỌC", self.progress.get(self.group, 0),
+                                       "Lượt xem " + self.group, MINT))
+        self.body.add_widget(row)
+
+        self.body.add_widget(label("KHÁM PHÁ NGAY", 15, GREEN, True, 36))
+        row = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(153))
+        row.add_widget(self._action_card("Học HSK 3.0", "Từ vựng tiếng Trung",
+                                          LAVENDER, lambda: self.change_group("HSK 1")))
+        row.add_widget(self._action_card("Học English", "Từ vựng tiếng Anh",
+                                          SKY, lambda: self.change_group("English 1")))
+        self.body.add_widget(row)
+        row = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(153))
+        row.add_widget(self._action_card("Flashcard", "Xem thẻ đã lưu",
+                                          PINK, lambda: self.change_mode("saved")))
+        row.add_widget(self._action_card("Từ điển", "Tra cứu CVDICT",
+                                          LEMON, self.open_dictionary))
+        self.body.add_widget(row)
+
+        tip = Panel(color=WHITE, radius=19, orientation="vertical",
+                    padding=[dp(15), dp(10), dp(15), dp(10)],
+                    size_hint_y=None, height=dp(96), spacing=dp(5))
+        tip.add_widget(label("MẸO HỌC TẬP", 14, GREEN, True, 28))
+        tip.add_widget(label("Học 5 từ mới, lật thẻ và lưu những từ khó.",
+                             13, INK, height=45))
+        self.body.add_widget(tip)
 
     def change_group(self, group):
         if group not in self.data:
@@ -414,7 +496,9 @@ class DolingoApp(App):
         self.body.clear_widgets()
         self._top_navigation()
         self.body.add_widget(label("XP: %d     •     Chuỗi đúng: %d" % (self.xp, self.streak), 14, GREEN, True, 32))
-        if self.mode == "saved":
+        if self.mode == "dashboard":
+            self.render_dashboard()
+        elif self.mode == "saved":
             self.render_saved()
         elif self.mode == "search":
             self.render_search()
@@ -424,7 +508,7 @@ class DolingoApp(App):
             self.render_learn()
 
     def _card(self, min_height=350):
-        return Panel(color=GREEN, radius=23, orientation="vertical",
+        return Panel(color=WHITE, radius=23, orientation="vertical",
                      padding=[dp(16), dp(18), dp(16), dp(18)],
                      spacing=dp(10), size_hint_y=None, height=dp(min_height))
 
@@ -440,24 +524,24 @@ class DolingoApp(App):
                                    14, GREEN, True, 32))
         card = self._card(370 if self.flashcard_flipped else (400 if item["picture"] else 265))
         card.add_widget(label(("MẶT SAU  •  " if self.flashcard_flipped else "MẶT TRƯỚC  •  ") + self.group,
-                              12, GOLD, True, 29))
+                              12, GREEN, True, 29))
         if self.flashcard_flipped:
-            card.add_widget(label("NGHĨA TIẾNG VIỆT", 12, MINT, True, 30))
+            card.add_widget(label("NGHĨA TIẾNG VIỆT", 12, GREEN, True, 30))
             card.add_widget(label(item["vi"] or "Chưa có bản dịch tiếng Việt", 21,
-                                  WHITE, True, 98, align="center"))
-            card.add_widget(label(item["reading"], 18, GOLD, height=42, align="center"))
-            card.add_widget(label((item["meaning"] or "")[:240], 13, WHITE,
+                                  INK, True, 98, align="center"))
+            card.add_widget(label(item["reading"], 18, GREEN, height=42, align="center"))
+            card.add_widget(label((item["meaning"] or "")[:240], 13, MUTED,
                                   height=105, align="center"))
         else:
             if item["picture"]:
-                picture_bg = Panel(color=(0.15, 0.37, 0.29, 1), radius=16,
+                picture_bg = Panel(color=SKY, radius=16,
                                    size_hint_y=None, height=dp(116), padding=dp(5))
                 picture_bg.add_widget(Picture(item["picture"]))
                 card.add_widget(picture_bg)
             card.add_widget(label(item["word"], 36 if len(item["word"]) < 14 else 26,
-                                  WHITE, True, 104, font=CJK_FONT if item["course"]=="HSK" else FONT,
+                                  INK, True, 104, font=CJK_FONT if item["course"]=="HSK" else FONT,
                                   align="center"))
-            card.add_widget(label("Hãy đoán nghĩa trước khi lật thẻ", 13, MINT,
+            card.add_widget(label("Hãy đoán nghĩa trước khi lật thẻ", 13, MUTED,
                                   height=40, align="center"))
         self.body.add_widget(card)
         self.body.add_widget(button("LẬT THẺ  •  XEM NGHĨA" if not self.flashcard_flipped
@@ -552,12 +636,12 @@ class DolingoApp(App):
         self.body.add_widget(label("Đúng: %d / %d" % (self.correct, self.attempts),
                                    15, GREEN, True, 34))
         card = self._card(220)
-        card.add_widget(label("CHỌN NGHĨA ĐÚNG CHO TỪ", 12, GOLD, True, 32,
+        card.add_widget(label("CHỌN NGHĨA ĐÚNG CHO TỪ", 12, GREEN, True, 32,
                               align="center"))
-        card.add_widget(label(item["word"], 34, WHITE, True, 95,
+        card.add_widget(label(item["word"], 34, INK, True, 95,
                               font=CJK_FONT if item["course"]=="HSK" else FONT,
                               align="center"))
-        card.add_widget(label(item["reading"], 17, MINT, height=40, align="center"))
+        card.add_widget(label(item["reading"], 17, GREEN, height=40, align="center"))
         self.body.add_widget(card)
         options = [item]
         others = [r for r in self.deck if r["word"]!=item["word"] and r["meaning"]]
