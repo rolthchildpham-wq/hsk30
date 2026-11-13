@@ -371,10 +371,14 @@ class DolingoApp(App):
         self.status = label("Đang chuẩn bị bài học...", 14, MUTED, height=40,
                             align="center")
         self.root_panel.add_widget(self.status)
-        self.fixed_nav = BoxLayout(orientation="vertical", size_hint_y=None, height=dp(116))
+        self.fixed_nav = BoxLayout(orientation="vertical", size_hint_y=None, height=dp(55))
         self.root_panel.add_widget(self.fixed_nav)
         self.main_scroll = ScrollView(do_scroll_x=False, bar_width=dp(3))
         self.root_panel.add_widget(self.main_scroll)
+        self.bottom_nav = Panel(color=WHITE, radius=0, size_hint_y=None,
+                                height=dp(67), padding=[dp(8), dp(6), dp(8), dp(7)],
+                                spacing=dp(4))
+        self.root_panel.add_widget(self.bottom_nav)
         self.body = BoxLayout(orientation="vertical", size_hint_y=None,
                               padding=[dp(15), dp(10), dp(15), dp(20)],
                               spacing=dp(12))
@@ -416,51 +420,108 @@ class DolingoApp(App):
             self.body.add_widget(button("Thử lại", lambda: self._initialize()))
 
     def _top_navigation(self):
-        """Compact mobile navigation, keeping content on-screen at phone widths."""
-        bar = Panel(color=WHITE, radius=0, size_hint_y=None, height=dp(55),
-                    padding=[dp(15), 0, dp(15), 0], spacing=dp(6))
-        bar.add_widget(label("DOLINGO", 23, GREEN, True, 50))
-        bar.add_widget(label("STUDY STUDIO  •  1.2.1", 11, MUTED, False,
-                             50, align="right"))
-        self.fixed_nav.add_widget(bar)
+        """Keep top branding quiet; the actual primary navigation is bottom-fixed."""
+        header = Panel(color=WHITE, radius=0, size_hint_y=None, height=dp(55),
+                       padding=[dp(15), 0, dp(15), 0], spacing=dp(6))
+        header.add_widget(label("DOLINGO", 23, GREEN, True, 50))
+        header.add_widget(label("HSK  •  ENGLISH  •  OFFLINE", 10,
+                                MUTED, height=50, align="right"))
+        self.fixed_nav.add_widget(header)
+        self._bottom_navigation()
 
-        tabs = Panel(color=WHITE, radius=17, size_hint_y=None, height=dp(61),
-                     padding=dp(6), spacing=dp(5))
-        for title, mode in (("HOME", "dashboard"), ("HỌC", "learn"),
-                            ("LUYỆN", "quiz"), ("ĐÃ LƯU", "saved")):
-            active = self.mode == mode
-            tabs.add_widget(button(title, partial(self.change_mode, mode),
-                                   bg=GREEN if active else BG,
-                                   fg=WHITE if active else INK,
-                                   height=49, size=12))
-        self.fixed_nav.add_widget(tabs)
-
-        # Only show lesson selectors when they are needed; dashboard stays clean.
-        if self.mode != "dashboard":
-            subjects = Panel(color=WHITE, radius=15, size_hint_y=None,
-                             height=dp(60), padding=dp(6), spacing=dp(8))
-            subjects.add_widget(button("HSK 3.0",
-                                       lambda: self.change_group("HSK 1"),
-                                       bg=MINT if self.group.startswith("HSK") else BG,
-                                       fg=GREEN, height=46, size=13))
-            subjects.add_widget(button("ENGLISH",
-                                       lambda: self.change_group("English 1"),
-                                       bg=SKY if self.group.startswith("English") else BG,
-                                       fg=GREEN, height=46, size=13))
-            subjects.add_widget(button("CVDICT", self.open_dictionary,
-                                       bg=LEMON, fg=GREEN, height=46, size=13))
-            self.body.add_widget(subjects)
+        if self.mode in ("learn", "quiz", "saved"):
+            selector_row = Panel(color=WHITE, radius=16, size_hint_y=None,
+                                 height=dp(60), padding=dp(6), spacing=dp(8))
+            selector_row.add_widget(button("HSK", lambda: self.change_group("HSK 1"),
+                                           bg=MINT if self.group.startswith("HSK") else BG,
+                                           fg=GREEN, height=47, size=13))
+            selector_row.add_widget(button("ENGLISH",
+                                           lambda: self.change_group("English 1"),
+                                           bg=SKY if self.group.startswith("English") else BG,
+                                           fg=GREEN, height=47, size=13))
+            selector_row.add_widget(button("CVDICT", self.open_dictionary,
+                                           bg=LEMON, fg=GREEN, height=47, size=13))
+            self.body.add_widget(selector_row)
             levels = (["HSK " + str(i) for i in range(1, 10)]
                       if self.group.startswith("HSK")
                       else ["English 1", "English 2", "English 3"])
             levels = [name for name in levels if name in self.data]
-            selector = Spinner(text=self.group, values=levels, font_name=FONT,
-                               font_size=dp(15), color=INK, background_normal="",
-                               background_color=LAVENDER, size_hint_y=None,
-                               height=dp(49))
-            selector.bind(text=lambda _inst, name:
-                          self.change_group(name) if name != self.group else None)
-            self.body.add_widget(selector)
+            select = Spinner(text=self.group, values=levels, font_name=FONT,
+                             font_size=dp(15), color=INK, background_normal="",
+                             background_color=LAVENDER, size_hint_y=None,
+                             height=dp(50))
+            select.bind(text=lambda _inst, name: self.change_group(name)
+                        if name != self.group else None)
+            self.body.add_widget(select)
+
+    def _bottom_navigation(self):
+        self.bottom_nav.clear_widgets()
+        # Five large hit targets reflect the library-first layout in the reference video.
+        items = [
+            ("TRANG CHỦ", "dashboard"),
+            ("HỌC TỪ", "learn"),
+            ("THƯ VIỆN", "library"),
+            ("ĐÃ LƯU", "saved"),
+            ("CÁ NHÂN", "profile")
+        ]
+        for title, mode in items:
+            active = (self.mode == mode or
+                      (self.mode == "quiz" and mode == "learn"))
+            self.bottom_nav.add_widget(
+                button(title, partial(self.change_mode, mode),
+                       bg=GREEN if active else WHITE,
+                       fg=WHITE if active else MUTED,
+                       height=52, size=10)
+            )
+
+    def render_library(self):
+        """Browse actual bundled vocabulary by level, without fake video records."""
+        self.body.add_widget(label("THƯ VIỆN HỌC TẬP", 21, GREEN, True, 48))
+        self.body.add_widget(label("Khám phá từng cấp độ từ dữ liệu có sẵn.",
+                                   13, MUTED, height=35))
+        for title, prefix, shade in (("TIẾNG TRUNG  •  HSK 3.0", "HSK ", LAVENDER),
+                                     ("TIẾNG ANH  •  ENGLISH", "English ", SKY)):
+            self.body.add_widget(label(title, 15, GREEN, True, 37))
+            for group in sorted((x for x in self.data if x.startswith(prefix)),
+                                key=lambda x: int(x.split()[-1])):
+                count = len(self.data[group])
+                card = Panel(color=shade, radius=16, orientation="vertical",
+                             padding=[dp(14), dp(10), dp(14), dp(10)],
+                             size_hint_y=None, height=dp(104), spacing=dp(4))
+                card.add_widget(label(group + "  •  " + str(count) + " từ",
+                                      16, INK, True, 36))
+                card.add_widget(button("HỌC CẤP ĐỘ NÀY",
+                                       partial(self.change_group, group),
+                                       bg=GREEN, fg=WHITE, height=44, size=12))
+                self.body.add_widget(card)
+
+    def render_profile(self):
+        """Local profile: no unsupported account sync promises."""
+        self.body.add_widget(label("KHÔNG GIAN CỦA BẠN", 21, GREEN, True, 47))
+        profile = Panel(color=LAVENDER, radius=20, orientation="vertical",
+                        padding=[dp(15), dp(12), dp(15), dp(12)],
+                        size_hint_y=None, height=dp(184), spacing=dp(8))
+        profile.add_widget(label("Tiến độ học trên thiết bị", 17, GREEN, True, 36))
+        profile.add_widget(label("XP: %d   •   Chuỗi đúng: %d" %
+                                  (self.xp, self.streak), 15, INK, height=40))
+        profile.add_widget(label("Từ HSK: %d   •   English: %d" %
+                                  (self.hsk_count, self.en_count), 13, MUTED,
+                                  height=34))
+        profile.add_widget(label("Dữ liệu cá nhân được giữ trên máy.",
+                                  12, MUTED, height=30))
+        self.body.add_widget(profile)
+        self.body.add_widget(button("ÔN FLASHCARD ĐÃ LƯU",
+                                    lambda: self.change_mode("saved"),
+                                    bg=MINT, fg=GREEN))
+        self.body.add_widget(button("LUYỆN TẬP TRẮC NGHIỆM",
+                                    lambda: self.change_mode("quiz"),
+                                    bg=SKY, fg=GREEN))
+        if self.dictionary.available:
+            self.body.add_widget(button("TRA CVDICT NGOẠI TUYẾN",
+                                        self.open_dictionary,
+                                        bg=LEMON, fg=GREEN))
+        self.body.add_widget(label("Chưa bật đăng nhập hoặc đồng bộ cloud.",
+                                   12, MUTED, height=40))
 
     def _stat_card(self, heading, value, note, shade):
         card = Panel(color=shade, radius=19, orientation="vertical",
@@ -522,6 +583,9 @@ class DolingoApp(App):
                                           LEMON, self.open_dictionary))
         self.body.add_widget(row)
 
+        self.body.add_widget(button("XEM TOÀN BỘ THƯ VIỆN HỌC TẬP",
+                                    lambda: self.change_mode("library"),
+                                    bg=MINT, fg=GREEN, height=52))
         tip = Panel(color=WHITE, radius=19, orientation="vertical",
                     padding=[dp(15), dp(10), dp(15), dp(10)],
                     size_hint_y=None, height=dp(96), spacing=dp(5))
@@ -560,6 +624,10 @@ class DolingoApp(App):
             self.body.add_widget(label("XP: %d     •     Chuỗi đúng: %d" % (self.xp, self.streak), 14, GREEN, True, 32))
         if self.mode == "dashboard":
             self.render_dashboard()
+        elif self.mode == "library":
+            self.render_library()
+        elif self.mode == "profile":
+            self.render_profile()
         elif self.mode == "saved":
             self.render_saved()
         elif self.mode == "search":
