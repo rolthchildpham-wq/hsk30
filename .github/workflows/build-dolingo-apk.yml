@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - dolingo-android-apk
+      - feature/cvdict-offline-1-2-1
     paths:
       - 'dolingo_android/**'
       - '.github/workflows/build-dolingo-apk.yml'
@@ -28,9 +29,20 @@ jobs:
           mkdir -p dolingo_android/data
           cp hsk30.csv dolingo_android/data/hsk30.csv
           test -s dolingo_android/data/hsk30.csv
+      - name: Build complete offline CVDICT dictionary
+        run: |
+          python3 dolingo_android/build_cvdict.py
+          python3 - <<'PY'
+          import sqlite3
+          db = sqlite3.connect('dolingo_android/data/cvdict.sqlite3')
+          n = db.execute('select count(*) from entries').fetchone()[0]
+          assert n > 100000, n
+          assert db.execute("select count(*) from entries where simplified='学习'").fetchone()[0] > 0
+          print('CVDICT data ready:', n)
+          PY
       - name: Check bundled data and app source before Android build
         run: |
-          python3 -m py_compile dolingo_android/main.py
+          python3 -m py_compile dolingo_android/main.py dolingo_android/cvdict_search.py dolingo_android/build_cvdict.py
           python3 - <<'PY'
           import json
           from pathlib import Path
