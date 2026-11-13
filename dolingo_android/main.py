@@ -24,6 +24,8 @@ from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
 from kivy.uix.popup import Popup
 from cvdict_search import Dictionary
+from tts_android import Pronouncer
+from learning_tools import tone_of_pinyin, review_update, is_due
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 HSK_PATH = os.path.join(ROOT, "data", "words_hsk30_real.json")
@@ -330,7 +332,9 @@ def load_courses(dictionary=None):
                 missing_english += 1
             groups["English " + level].append({
                 "word": word,
-                "reading": str(item.get("pos") or ""),
+                "reading": "",
+                "pos": str(item.get("pos") or ""),
+                "ipa": str(item.get("ipa") or item.get("phonetic") or ""),
                 "meaning": meaning,
                 "vi": english_vi,
                 "picture": ILLUSTRATED_WORDS.get(word.lower(), "") or ICON_BY_WORD.get(word.lower(), ""),
@@ -348,6 +352,7 @@ class DolingoApp(App):
         self.title = "Dolingo | Study Studio"
         self.data = {}
         self.dictionary = Dictionary()
+        self.pronouncer = Pronouncer()
         self.saved_words = []
         self.hsk_count = 0
         self.en_count = 0
@@ -366,6 +371,7 @@ class DolingoApp(App):
         self.saved_words = list(self.progress.get("_cvdict_saved", []))
         self.xp = int(self.progress.get("_xp", 0))
         self.streak = int(self.progress.get("_streak", 0))
+        self.show_pinyin = bool(self.progress.get("_show_pinyin", True))
         self.root_panel = Panel(color=BG, radius=0, orientation="vertical")
 
         self.status = label("Đang chuẩn bị bài học...", 14, MUTED, height=40,
@@ -513,6 +519,10 @@ class DolingoApp(App):
         self.body.add_widget(button("ÔN FLASHCARD ĐÃ LƯU",
                                     lambda: self.change_mode("saved"),
                                     bg=MINT, fg=GREEN))
+        self.body.add_widget(button("HIỂN THỊ PINYIN: " + ("BẬT" if self.show_pinyin else "TẮT"),
+                                    self.toggle_pinyin, bg=PEACH, fg=GREEN))
+        self.body.add_widget(button("LUYỆN THANH ĐIỆU",
+                                    lambda: self.change_mode("tones"), bg=LEMON, fg=GREEN))
         self.body.add_widget(button("LUYỆN TẬP TRẮC NGHIỆM",
                                     lambda: self.change_mode("quiz"),
                                     bg=SKY, fg=GREEN))
@@ -632,6 +642,8 @@ class DolingoApp(App):
             self.render_saved()
         elif self.mode == "search":
             self.render_search()
+        elif self.mode == "tones":
+            self.render_tone_practice()
         elif self.mode == "quiz":
             self.render_quiz()
         else:
@@ -652,7 +664,7 @@ class DolingoApp(App):
         self.body.add_widget(label("Đã xem %d từ  •  Từ %d / %d" %
                                    (viewed, self.index+1, len(self.deck)),
                                    14, GREEN, True, 32))
-        card = self._card(370 if self.flashcard_flipped else (455 if item["picture"] else 265))
+        card = self._card(370 if self.flashcard_flipped else (455 if item["picture"] else 310))
         card.add_widget(label(("MẶT SAU  •  " if self.flashcard_flipped else "MẶT TRƯỚC  •  ") + self.group,
                               12, GREEN, True, 29))
         if self.flashcard_flipped:
@@ -675,9 +687,18 @@ class DolingoApp(App):
             card.add_widget(label(item["word"], 36 if len(item["word"]) < 14 else 26,
                                   INK, True, 104, font=CJK_FONT if item["course"]=="HSK" else FONT,
                                   align="center"))
+            if item["course"] == "HSK" and self.show_pinyin:
+                card.add_widget(label(item["reading"] or "Pinyin chưa có dữ liệu", 17,
+                                      GREEN, height=36, align="center"))
+            elif item["course"] == "English":
+                card.add_widget(label(item.get("ipa") or "IPA chưa có dữ liệu", 16,
+                                      GREEN, height=36, align="center"))
             card.add_widget(label("Hãy đoán nghĩa trước khi lật thẻ", 13, MUTED,
                                   height=40, align="center"))
         self.body.add_widget(card)
+        self.body.add_widget(button("NGHE PHÁT ÂM  •  " + ("TRUNG" if item["course"] == "HSK" else "ANH"),
+                                    partial(self.pronounce_item, item), bg=SKY, fg=GREEN,
+                                    height=52))
         self.body.add_widget(button("LẬT THẺ  •  XEM NGHĨA" if not self.flashcard_flipped
                                     else "LẬT LẠI  •  XEM TỪ", self.flip_flashcard,
                                     bg=GOLD, fg=INK))
@@ -694,6 +715,14 @@ class DolingoApp(App):
             else:
                 self.body.add_widget(label("Đồng nghĩa: " + item["other"][:120],
                                            14, MUTED, height=52))
+        reviews = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(7))
+        reviews.add_widget(button("CHƯA NHỚ", partial(self.mark_review, item, "again"),
+                                  bg=PINK, fg=GREEN, height=46, size=12))
+        reviews.add_widget(button("KHÓ", partial(self.mark_review, item, "hard"),
+                                  bg=PEACH, fg=GREEN, height=46, size=12))
+        reviews.add_widget(button("ĐÃ NHỚ", partial(self.mark_review, item, "good"),
+                                  bg=MINT, fg=GREEN, height=46, size=12))
+        self.body.add_widget(reviews)
         controls = BoxLayout(size_hint_y=None, height=dp(54), spacing=dp(9))
         controls.add_widget(button("TRỘN LẠI", self.shuffle, bg=MINT, fg=GREEN))
         controls.add_widget(button("TỪ TIẾP  →", self.next_word, bg=GREEN))
@@ -704,6 +733,69 @@ class DolingoApp(App):
         self.body.add_widget(controls)
         self.body.add_widget(label("Luyện tập để kiểm tra mức độ ghi nhớ.", 13,
                                    MUTED, height=34, align="center"))
+
+    def pronounce_item(self, item):
+        lang = "zh" if item.get("course") == "HSK" else "en"
+        text = (item.get("word") or "").split("|")[0].strip()
+        success, message = self.pronouncer.speak(text, lang)
+        self.status.text = message
+        return success
+
+    def toggle_pinyin(self):
+        self.show_pinyin = not self.show_pinyin
+        self.progress["_show_pinyin"] = self.show_pinyin
+        self._save_progress()
+        self.render()
+
+    def render_tone_practice(self):
+        if not self.group.startswith("HSK"):
+            self.body.add_widget(label("Luyện thanh điệu dành cho từ HSK.",
+                                       14, MUTED, height=50))
+            self.body.add_widget(button("MỞ HSK 1", lambda: self.change_group("HSK 1")))
+            return
+        usable = [row for row in self.deck if tone_of_pinyin(row.get("reading")) is not None]
+        if not usable:
+            self.body.add_widget(label("Chưa có dữ liệu Pinyin để luyện thanh điệu.",
+                                       14, MUTED, height=70))
+            return
+        item = usable[self.index % len(usable)]
+        tone = tone_of_pinyin(item["reading"])
+        self.body.add_widget(label("LUYỆN NHẬN BIẾT THANH ĐIỆU", 17, GREEN, True, 46))
+        panel = self._card(245)
+        panel.add_widget(label(item["word"], 38, INK, True, 100, font=CJK_FONT,
+                               align="center"))
+        panel.add_widget(label("Nghe từ rồi chọn thanh điệu của âm tiết đầu.",
+                               14, MUTED, height=58, align="center"))
+        self.body.add_widget(panel)
+        self.body.add_widget(button("NGHE TỪ", partial(self.pronounce_item, item),
+                                    bg=SKY, fg=GREEN))
+        for n, name in ((1, "Thanh 1 – ngang"), (2, "Thanh 2 – sắc"),
+                        (3, "Thanh 3 – hỏi"), (4, "Thanh 4 – nặng"),
+                        (5, "Thanh nhẹ")):
+            self.body.add_widget(button(name, partial(self.answer_tone, n, tone),
+                                        bg=WHITE, fg=GREEN, height=48, size=14))
+
+    def answer_tone(self, chosen, expected):
+        correct = chosen == expected
+        self.status.text = "Đúng thanh điệu! +5 XP" if correct else (
+            "Chưa đúng. Đáp án là thanh " + str(expected))
+        if correct:
+            self.xp += 5
+            self.progress["_xp"] = self.xp
+        self.index = (self.index + 1) % max(1, len(self.deck))
+        self._save_progress()
+        self.render()
+
+    def mark_review(self, item, grade):
+        key = self.group + "|" + item["word"]
+        reviews = dict(self.progress.get("_srs", {}))
+        reviews[key] = review_update(reviews.get(key), grade)
+        self.progress["_srs"] = reviews
+        if key not in self.progress.get("_flashcard_saved", []):
+            self.progress.setdefault("_flashcard_saved", []).append(key)
+        self._save_progress()
+        self.status.text = "Đã lên lịch ôn từ: " + item["word"]
+        self.next_word()
 
     def flip_flashcard(self):
         self.flashcard_flipped = not self.flashcard_flipped
@@ -723,6 +815,10 @@ class DolingoApp(App):
 
     def render_saved(self):
         keys = self.progress.get("_flashcard_saved", [])
+        reviews = self.progress.get("_srs", {})
+        due = sum(1 for key in keys if is_due(reviews.get(key)))
+        self.body.add_widget(label("CẦN ÔN HÔM NAY: %d  •  ĐÃ LƯU: %d" % (due, len(keys)),
+                                   14, GREEN, True, 36))
         self.body.add_widget(label("FLASHCARD ĐÃ LƯU  •  %d TỪ" % len(keys),
                                    17, GREEN, True, 52))
         if not keys:
@@ -779,8 +875,11 @@ class DolingoApp(App):
         card.add_widget(label(item["word"], 34, INK, True, 95,
                               font=CJK_FONT if item["course"]=="HSK" else FONT,
                               align="center"))
-        card.add_widget(label(item["reading"], 17, GREEN, height=40, align="center"))
+        card.add_widget(label(item["reading"] if item["course"] == "HSK" else
+                              item.get("ipa", ""), 17, GREEN, height=40, align="center"))
         self.body.add_widget(card)
+        self.body.add_widget(button("NGHE TỪ", partial(self.pronounce_item, item),
+                                    bg=SKY, fg=GREEN, height=50))
         options = [item]
         others = [r for r in self.deck if r["word"]!=item["word"] and r["meaning"]]
         random.shuffle(others)
@@ -867,6 +966,8 @@ class DolingoApp(App):
         draw()
 
     def on_stop(self):
+        if getattr(self, "pronouncer", None):
+            self.pronouncer.close()
         if getattr(self, "dictionary", None):
             self.dictionary.close()
 
