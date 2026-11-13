@@ -644,6 +644,9 @@ class DolingoApp(App):
             return
         self.group = group
         self.deck = list(self.data[group])
+        self.match_pairs = []
+        self.match_done = set()
+        self.fill_index = 0
         random.shuffle(self.deck)
         self.index = 0
         self.reveal = False
