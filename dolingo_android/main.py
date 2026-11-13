@@ -299,6 +299,7 @@ class DolingoApp(App):
         self.correct = 0
         self.attempts = 0
         self.reveal = False
+        self.flashcard_flipped = False
         self.progress = {}
         self._load_progress()
         self.saved_words = list(self.progress.get("_cvdict_saved", []))
@@ -383,8 +384,10 @@ class DolingoApp(App):
                                 bg=GREEN if self.mode=="quiz" else MINT,
                                 fg=WHITE if self.mode=="quiz" else GREEN, height=46))
         tools.add_widget(button("TỪ ĐIỂN", self.open_dictionary,
-                                bg=GREEN if self.mode=="search" else MINT,
-                                fg=WHITE if self.mode=="search" else GREEN, height=46))
+                                bg=MINT, fg=GREEN, height=46))
+        tools.add_widget(button("ĐÃ LƯU", lambda: self.change_mode("saved"),
+                                bg=GREEN if self.mode=="saved" else MINT,
+                                fg=WHITE if self.mode=="saved" else GREEN, height=46))
         self.body.add_widget(tools)
 
     def change_group(self, group):
@@ -398,18 +401,22 @@ class DolingoApp(App):
         self.correct = 0
         self.attempts = 0
         self.mode = "learn"
+        self.flashcard_flipped = False
         self.render()
 
     def change_mode(self, mode):
         self.mode = mode
         self.reveal = False
+        self.flashcard_flipped = False
         self.render()
 
     def render(self):
         self.body.clear_widgets()
         self._top_navigation()
         self.body.add_widget(label("XP: %d     •     Chuỗi đúng: %d" % (self.xp, self.streak), 14, GREEN, True, 32))
-        if self.mode == "search":
+        if self.mode == "saved":
+            self.render_saved()
+        elif self.mode == "search":
             self.render_search()
         elif self.mode == "quiz":
             self.render_quiz()
@@ -431,27 +438,35 @@ class DolingoApp(App):
         self.body.add_widget(label("Đã xem %d từ  •  Từ %d / %d" %
                                    (viewed, self.index+1, len(self.deck)),
                                    14, GREEN, True, 32))
-        card = self._card(630 if item["picture"] else 485)
-        card.add_widget(label("FLASHCARD  •  " + self.group, 12, GOLD, True, 29))
-        if item["picture"]:
-            picture_bg = Panel(color=(0.15, 0.37, 0.29, 1), radius=16,
-                               size_hint_y=None, height=dp(125), padding=dp(5))
-            picture_bg.add_widget(Picture(item["picture"]))
-            card.add_widget(picture_bg)
-        card.add_widget(label(item["word"], 36 if len(item["word"]) < 14 else 26,
-                              WHITE, True, 65,
-                              font=CJK_FONT if item["course"]=="HSK" else FONT,
-                              align="center"))
-        card.add_widget(label(item["reading"], 17, GOLD, False, 32, align="center"))
-        card.add_widget(label("NGHĨA TIẾNG VIỆT", 12, MINT, True, 24))
-        card.add_widget(label(item["vi"] or "Chưa có bản dịch tiếng Việt",
-                              18, WHITE, True, 54, align="center"))
-        card.add_widget(label("ENGLISH DEFINITION", 11, MINT, True, 22))
-        desc = item["meaning"] or "English meaning pending review"
-        card.add_widget(label(desc[:330], 13, WHITE, height=105, align="center"))
-        card.add_widget(label("Nguồn: " + item["source"], 10, MINT, height=21,
-                              align="center"))
+        card = self._card(370 if self.flashcard_flipped else (400 if item["picture"] else 265))
+        card.add_widget(label(("MẶT SAU  •  " if self.flashcard_flipped else "MẶT TRƯỚC  •  ") + self.group,
+                              12, GOLD, True, 29))
+        if self.flashcard_flipped:
+            card.add_widget(label("NGHĨA TIẾNG VIỆT", 12, MINT, True, 30))
+            card.add_widget(label(item["vi"] or "Chưa có bản dịch tiếng Việt", 21,
+                                  WHITE, True, 98, align="center"))
+            card.add_widget(label(item["reading"], 18, GOLD, height=42, align="center"))
+            card.add_widget(label((item["meaning"] or "")[:240], 13, WHITE,
+                                  height=105, align="center"))
+        else:
+            if item["picture"]:
+                picture_bg = Panel(color=(0.15, 0.37, 0.29, 1), radius=16,
+                                   size_hint_y=None, height=dp(116), padding=dp(5))
+                picture_bg.add_widget(Picture(item["picture"]))
+                card.add_widget(picture_bg)
+            card.add_widget(label(item["word"], 36 if len(item["word"]) < 14 else 26,
+                                  WHITE, True, 104, font=CJK_FONT if item["course"]=="HSK" else FONT,
+                                  align="center"))
+            card.add_widget(label("Hãy đoán nghĩa trước khi lật thẻ", 13, MINT,
+                                  height=40, align="center"))
         self.body.add_widget(card)
+        self.body.add_widget(button("LẬT THẺ  •  XEM NGHĨA" if not self.flashcard_flipped
+                                    else "LẬT LẠI  •  XEM TỪ", self.flip_flashcard,
+                                    bg=GOLD, fg=INK))
+        key = self.group + "|" + item["word"]
+        saved = self.progress.get("_flashcard_saved", [])
+        self.body.add_widget(button("BỎ LƯU THẺ" if key in saved else "LƯU FLASHCARD",
+                                    self.toggle_flashcard_saved, bg=MINT, fg=GREEN))
         if item["other"]:
             self.body.add_widget(label(
                 ("Phồn thể: " if item["course"]=="HSK" else "Đồng nghĩa: ") +
@@ -468,12 +483,54 @@ class DolingoApp(App):
         self.body.add_widget(label("Luyện tập để kiểm tra mức độ ghi nhớ.", 13,
                                    MUTED, height=34, align="center"))
 
+    def flip_flashcard(self):
+        self.flashcard_flipped = not self.flashcard_flipped
+        self.render()
+
+    def toggle_flashcard_saved(self):
+        item = self.deck[self.index]
+        key = self.group + "|" + item["word"]
+        saved = list(self.progress.get("_flashcard_saved", []))
+        if key in saved:
+            saved.remove(key)
+        else:
+            saved.append(key)
+        self.progress["_flashcard_saved"] = saved
+        self._save_progress()
+        self.render()
+
+    def render_saved(self):
+        keys = self.progress.get("_flashcard_saved", [])
+        self.body.add_widget(label("FLASHCARD ĐÃ LƯU  •  %d TỪ" % len(keys),
+                                   17, GREEN, True, 52))
+        if not keys:
+            self.body.add_widget(label("Chưa có thẻ nào. Vào HỌC TỪ để lưu.",
+                                       14, MUTED, height=85))
+            return
+        for key in keys[-100:]:
+            if "|" not in key:
+                continue
+            group, word = key.split("|", 1)
+            matches = [r for r in self.data.get(group, []) if r["word"] == word]
+            if not matches:
+                continue
+            item = matches[0]
+            card = Panel(color=WHITE, radius=14, orientation="vertical",
+                         padding=dp(10), spacing=dp(5), size_hint_y=None, height=dp(122))
+            card.add_widget(label(word + "  " + item["reading"], 18, GREEN, True,
+                                  48, font=CJK_FONT))
+            card.add_widget(label((item["vi"] or item["meaning"])[:160], 14,
+                                  MUTED, height=55))
+            self.body.add_widget(card)
+
     def shuffle(self):
+        self.flashcard_flipped = False
         random.shuffle(self.deck)
         self.index = 0
         self.render()
 
     def next_word(self):
+        self.flashcard_flipped = False
         self.index = (self.index + 1) % len(self.deck)
         self.progress[self.group] = self.progress.get(self.group, 0) + 1
         self._save_progress()
