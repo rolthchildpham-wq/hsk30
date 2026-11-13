@@ -483,7 +483,7 @@ class DolingoApp(App):
                                      ("TIẾNG ANH  •  ENGLISH", "English ", SKY)):
             self.body.add_widget(label(title, 15, GREEN, True, 37))
             for group in sorted((x for x in self.data if x.startswith(prefix)),
-                                key=lambda x: int(x.split()[-1])):
+                                key=lambda x: int(re.search(r"\\d+", x).group())):
                 count = len(self.data[group])
                 card = Panel(color=shade, radius=16, orientation="vertical",
                              padding=[dp(14), dp(10), dp(14), dp(10)],
