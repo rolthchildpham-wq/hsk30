@@ -105,3 +105,11 @@ assert 'item["reading"] or "Pinyin chưa có dữ liệu"' in code
 from tts_android import Pronouncer
 assert hasattr(Pronouncer, "speak")
 print("PASS: Pinyin tones, spaced review, TTS wiring and learning controls")
+
+# IPA data is generated for offline study, rather than guessed from spelling.
+ipa_file = ROOT / "data" / "english_ipa.json"
+assert ipa_file.exists(), "English IPA database absent"
+ipa = json.loads(ipa_file.read_text(encoding="utf-8"))
+assert len(ipa) >= 800, len(ipa)
+assert ipa.get("hello", "").startswith("/") or len(ipa) >= 1500
+print("PASS: English IPA pronunciations:", len(ipa))
