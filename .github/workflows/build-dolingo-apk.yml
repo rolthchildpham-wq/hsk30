@@ -37,10 +37,14 @@ jobs:
           base = Path("dolingo_android/data")
           hsk = json.loads((base / "words_hsk30_real.json").read_text(encoding="utf-8"))
           eng = json.loads((base / "english_learner_thesaurus.json").read_text(encoding="utf-8"))
+          vi = json.loads((base / "vi_hsk_cvdict.json").read_text(encoding="utf-8"))
+          curated = json.loads((base / "vi_starter.json").read_text(encoding="utf-8"))
           assert len(hsk) == 11092, len(hsk)
           assert len(eng["entries"]) >= 2000, len(eng["entries"])
           assert all("word" in row and "level" in row for row in hsk)
-          print("Data OK", len(hsk), len(eng["entries"]))
+          assert len(vi["entries"]) > 10000
+          assert len(curated["hsk"]) > 300
+          print("Data OK", len(hsk), len(eng["entries"]), len(vi["entries"]))
           PY
       - name: Build Android debug APK
         working-directory: dolingo_android
