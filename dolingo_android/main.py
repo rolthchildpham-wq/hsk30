@@ -24,6 +24,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 HSK_PATH = os.path.join(ROOT, "data", "words_hsk30_real.json")
 EN_PATH = os.path.join(ROOT, "data", "english_learner_thesaurus.json")
 VI_PATH = os.path.join(ROOT, "data", "vi_starter.json")
+CVDICT_PATH = os.path.join(ROOT, "data", "vi_hsk_cvdict.json")
 BG = (0.975, 0.966, 0.943, 1)
 INK = (0.11, 0.19, 0.17, 1)
 GREEN = (0.064, 0.24, 0.19, 1)
@@ -241,6 +242,8 @@ def load_courses():
     groups = defaultdict(list)
     with open(VI_PATH, "r", encoding="utf-8") as stream:
         vi = json.load(stream)
+    with open(CVDICT_PATH, "r", encoding="utf-8") as stream:
+        cvdict = json.load(stream).get("entries", {})
     with open(HSK_PATH, "r", encoding="utf-8") as stream:
         hsk = json.load(stream)
     for item in hsk:
@@ -252,7 +255,7 @@ def load_courses():
             "word": word,
             "reading": str(item.get("pinyin") or ""),
             "meaning": str(item.get("en") or "").strip(),
-            "vi": str(item.get("vi") or vi["hsk"].get(word.split("|")[0], "")).strip(),
+            "vi": str(item.get("vi") or vi["hsk"].get(word.split("|")[0], "") or cvdict.get(str(item.get("id") or ""), "")).strip(),
             "picture": ICON_BY_WORD.get(word.split("|")[0], ""),
             "other": str(item.get("traditional") or "").strip(),
             "source": "HSK 3.0 - ivankra/hsk30",
