@@ -4,7 +4,7 @@ package.name = dolingohsk
 package.domain = org.dolingo.study
 source.dir = .
 source.include_exts = py,csv,json,txt,png,jpg,kv
-version = 1.0.1
+version = 1.0.2
 requirements = python3==3.12.9,hostpython3==3.12.9,kivy==2.3.0
 orientation = portrait
 fullscreen = 0
