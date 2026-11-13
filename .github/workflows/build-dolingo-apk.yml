@@ -55,6 +55,9 @@ jobs:
                   im.verify()
           print('Illustrations validated:', len(files))
           PY
+      - name: Run screenshot regression checks
+        run: |
+          python3 dolingo_android/test_regressions.py
       - name: Check bundled data and app source before Android build
         run: |
           python3 -m py_compile dolingo_android/main.py dolingo_android/cvdict_search.py dolingo_android/build_cvdict.py dolingo_android/build_illustrations.py
