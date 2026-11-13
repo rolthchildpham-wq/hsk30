@@ -161,7 +161,7 @@ def clean_vi_gloss(value):
     """Remove CVDICT classifier metadata and broken legacy glyphs from UI."""
     text = unicodedata.normalize("NFC", str(value or "")).strip()
     # HSK flashcards need a readable Vietnamese gloss, not technical metadata.
-    text = re.split(r"(?i)(?:;\s*|\s+)LT\s*:", text, maxsplit=1)[0]
+    text = re.split(r"(?i)LT\s*:", text, maxsplit=1)[0]
     text = text.replace("\ufffd", "").replace("\u200b", "")
     text = "".join(ch for ch in text if unicodedata.category(ch) != "Cc" or ch in "\n\t")
     text = text.strip(" ;,/\t\n")
