@@ -1,0 +1,10 @@
+Dolingo Vietnamese HSK definitions source:
+CVDICT - Chinese-Vietnamese Dictionary by Phong Phan
+https://github.com/ph0ngp/CVDICT
+License: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
+https://creativecommons.org/licenses/by-sa/4.0/
+
+Dictionary-derived subset: dolingo_android/data/vi_hsk_cvdict.json
+The Vietnamese glosses were matched to HSK words using headwords and approximate Pinyin, and truncated for mobile display. Some glosses may be ambiguous or need editorial review. The CVDICT source itself reports machine-aided translations with potential remaining errors. This derived dictionary subset is distributed subject to CC BY-SA 4.0. Keep attribution and share-alike licensing when redistributing adapted dictionary content.
+
+Separate editorial glosses are in vi_starter.json and are prioritized for selected beginner words.
