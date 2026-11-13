@@ -2,6 +2,8 @@
 import json
 import os
 import random
+import re
+import unicodedata
 import traceback
 from collections import defaultdict
 from functools import partial
@@ -16,6 +18,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
+from kivy.uix.image import Image
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
@@ -27,6 +30,7 @@ HSK_PATH = os.path.join(ROOT, "data", "words_hsk30_real.json")
 EN_PATH = os.path.join(ROOT, "data", "english_learner_thesaurus.json")
 VI_PATH = os.path.join(ROOT, "data", "vi_starter.json")
 CVDICT_PATH = os.path.join(ROOT, "data", "vi_hsk_cvdict.json")
+ILLUSTRATION_DIR = os.path.join(ROOT, "assets", "illustrations")
 BG = (0.974, 0.980, 0.996, 1)
 INK = (0.16, 0.20, 0.29, 1)
 GREEN = (0.10, 0.36, 0.32, 1)  # Deep teal for legible labels
@@ -131,6 +135,38 @@ ICON_WORDS = {
     "clock": "时间 时 点 今天 明天 yesterday today time",
     "computer": "电脑 computer laptop"
 }
+# Explicit word-to-image mapping avoids unrelated illustrations.
+# PNG assets are generated during the APK build and included offline.
+ILLUSTRATED_WORDS = {
+    "午饭": "food", "午餐": "food", "吃饭": "food", "饭": "food",
+    "早饭": "breakfast", "早餐": "breakfast", "晚饭": "dinner", "晚餐": "dinner",
+    "米饭": "rice", "苹果": "apple", "apple": "apple",
+    "书": "book", "书本": "book", "读书": "book", "book": "book",
+    "家": "home", "房子": "home", "home": "home", "house": "home",
+    "学校": "school", "school": "school",
+    "老师": "teacher", "teacher": "teacher",
+    "太阳": "sun", "sun": "sun", "月亮": "moon", "moon": "moon",
+    "花": "flower", "flower": "flower", "树": "tree", "tree": "tree",
+    "水": "water", "water": "water", "茶": "cup", "杯子": "cup", "tea": "cup",
+    "汽车": "car", "车": "car", "car": "car", "飞机": "plane", "plane": "plane",
+    "手机": "phone", "电话": "phone", "phone": "phone",
+    "时间": "clock", "钟": "clock", "clock": "clock",
+    "爱": "heart", "love": "heart",
+    "云": "cloud", "cloud": "cloud", "电脑": "computer", "computer": "computer",
+    "猫": "cat", "cat": "cat", "狗": "dog", "dog": "dog",
+    "人": "person", "朋友": "person", "person": "person",
+}
+
+def clean_vi_gloss(value):
+    """Remove CVDICT classifier metadata and broken legacy glyphs from UI."""
+    text = unicodedata.normalize("NFC", str(value or "")).strip()
+    # HSK flashcards need a readable Vietnamese gloss, not technical metadata.
+    text = re.split(r"(?i)(?:;\s*|\s+)LT\s*:", text, maxsplit=1)[0]
+    text = text.replace("\ufffd", "").replace("\u200b", "")
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cc" or ch in "\n\t")
+    text = text.strip(" ;,/\t\n")
+    return text[:220]
+
 ICON_BY_WORD = {}
 for _kind, _words in ICON_WORDS.items():
     for _word in _words.split():
@@ -263,8 +299,8 @@ def load_courses():
             "word": word,
             "reading": str(item.get("pinyin") or ""),
             "meaning": str(item.get("en") or "").strip(),
-            "vi": str(item.get("vi") or vi["hsk"].get(word.split("|")[0], "") or cvdict.get(str(item.get("id") or ""), "")).strip(),
-            "picture": ICON_BY_WORD.get(word.split("|")[0], ""),
+            "vi": clean_vi_gloss(vi["hsk"].get(word.split("|")[0], "") or item.get("vi") or cvdict.get(str(item.get("id") or ""), "")),
+            "picture": ILLUSTRATED_WORDS.get(word.split("|")[0], "") or ICON_BY_WORD.get(word.split("|")[0], ""),
             "other": str(item.get("traditional") or "").strip(),
             "source": "HSK 3.0 - ivankra/hsk30",
             "course": "HSK"
@@ -280,8 +316,8 @@ def load_courses():
                 "word": word,
                 "reading": str(item.get("pos") or ""),
                 "meaning": meaning,
-                "vi": str(vi["english"].get(word.lower(), "")).strip(),
-                "picture": ICON_BY_WORD.get(word.lower(), ""),
+                "vi": clean_vi_gloss(vi["english"].get(word.lower(), "")),
+                "picture": ILLUSTRATED_WORDS.get(word.lower(), "") or ICON_BY_WORD.get(word.lower(), ""),
                 "other": ", ".join(item.get("synonyms") or []),
                 "source": "carryword/english-vocabulary (MIT)",
                 "course": "English"
@@ -316,6 +352,8 @@ class DolingoApp(App):
         self.status = label("Đang chuẩn bị bài học...", 14, MUTED, height=40,
                             align="center")
         self.root_panel.add_widget(self.status)
+        self.fixed_nav = BoxLayout(orientation="vertical", size_hint_y=None, height=dp(116))
+        self.root_panel.add_widget(self.fixed_nav)
         self.main_scroll = ScrollView(do_scroll_x=False, bar_width=dp(3))
         self.root_panel.add_widget(self.main_scroll)
         self.body = BoxLayout(orientation="vertical", size_hint_y=None,
@@ -364,7 +402,7 @@ class DolingoApp(App):
         bar.add_widget(label("DOLINGO", 23, GREEN, True, 50))
         bar.add_widget(label("STUDY STUDIO  •  1.2.1", 11, MUTED, False,
                              50, align="right"))
-        self.body.add_widget(bar)
+        self.fixed_nav.add_widget(bar)
 
         tabs = Panel(color=WHITE, radius=17, size_hint_y=None, height=dp(61),
                      padding=dp(6), spacing=dp(5))
@@ -375,7 +413,7 @@ class DolingoApp(App):
                                    bg=GREEN if active else BG,
                                    fg=WHITE if active else INK,
                                    height=49, size=12))
-        self.body.add_widget(tabs)
+        self.fixed_nav.add_widget(tabs)
 
         # Only show lesson selectors when they are needed; dashboard stays clean.
         if self.mode != "dashboard":
@@ -485,17 +523,21 @@ class DolingoApp(App):
         self.mode = "learn"
         self.flashcard_flipped = False
         self.render()
+        Clock.schedule_once(lambda *_: setattr(self.main_scroll, "scroll_y", 1), 0)
 
     def change_mode(self, mode):
         self.mode = mode
         self.reveal = False
         self.flashcard_flipped = False
         self.render()
+        Clock.schedule_once(lambda *_: setattr(self.main_scroll, "scroll_y", 1), 0)
 
     def render(self):
         self.body.clear_widgets()
+        self.fixed_nav.clear_widgets()
         self._top_navigation()
-        self.body.add_widget(label("XP: %d     •     Chuỗi đúng: %d" % (self.xp, self.streak), 14, GREEN, True, 32))
+        if self.mode != "dashboard":
+            self.body.add_widget(label("XP: %d     •     Chuỗi đúng: %d" % (self.xp, self.streak), 14, GREEN, True, 32))
         if self.mode == "dashboard":
             self.render_dashboard()
         elif self.mode == "saved":
@@ -522,7 +564,7 @@ class DolingoApp(App):
         self.body.add_widget(label("Đã xem %d từ  •  Từ %d / %d" %
                                    (viewed, self.index+1, len(self.deck)),
                                    14, GREEN, True, 32))
-        card = self._card(370 if self.flashcard_flipped else (400 if item["picture"] else 265))
+        card = self._card(370 if self.flashcard_flipped else (455 if item["picture"] else 265))
         card.add_widget(label(("MẶT SAU  •  " if self.flashcard_flipped else "MẶT TRƯỚC  •  ") + self.group,
                               12, GREEN, True, 29))
         if self.flashcard_flipped:
@@ -535,8 +577,12 @@ class DolingoApp(App):
         else:
             if item["picture"]:
                 picture_bg = Panel(color=SKY, radius=16,
-                                   size_hint_y=None, height=dp(116), padding=dp(5))
-                picture_bg.add_widget(Picture(item["picture"]))
+                                   size_hint_y=None, height=dp(170), padding=dp(5))
+                image_path = os.path.join(ILLUSTRATION_DIR, item["picture"] + ".png")
+                if os.path.isfile(image_path):
+                    picture_bg.add_widget(Image(source=image_path, fit_mode="contain"))
+                else:
+                    picture_bg.add_widget(Picture(item["picture"]))
                 card.add_widget(picture_bg)
             card.add_widget(label(item["word"], 36 if len(item["word"]) < 14 else 26,
                                   INK, True, 104, font=CJK_FONT if item["course"]=="HSK" else FONT,
@@ -718,7 +764,7 @@ class DolingoApp(App):
                 heading = entry["simplified"] + "  [" + entry["pinyin"] + "]"
                 card.add_widget(label(heading[:95], 19, GREEN, True, 46,
                                       font=CJK_FONT))
-                card.add_widget(label(entry["meaning"][:250], 14, INK, height=67))
+                card.add_widget(label(clean_vi_gloss(entry["meaning"])[:250], 14, INK, height=67))
                 card.add_widget(button("LƯU VÀO SỔ TAY", partial(save_word, entry),
                                        bg=MINT, fg=GREEN, height=42, size=13))
                 results.add_widget(card)
