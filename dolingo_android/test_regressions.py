@@ -51,5 +51,31 @@ for item in hsk:
     if "\ufffd" in gloss or "LT:" in gloss:
         bad += 1
 assert bad == 0, bad
+
+# Confirm the real offline dictionary can fill missing HSK meanings.
+import sys
+sys.path.insert(0, str(ROOT))
+from cvdict_search import Dictionary
+dictionary = Dictionary()
+assert dictionary.available, "SQLite dictionary missing"
+for word in ("午饭", "学习", "老师"):
+    assert dictionary.exact_meaning(word), word
+missing = []
+for item in hsk:
+    word = str(item.get("word", "")).split("|")[0]
+    gloss = clean(vi.get(word) or item.get("vi") or cv.get(str(item.get("id") or "")
+                  or dictionary.exact_meaning(word))
+    if not gloss:
+        missing.append(word)
+print("HSK Vietnamese coverage: %d/%d, missing=%d" %
+      (len(hsk)-len(missing), len(hsk), len(missing)))
+print("Missing HSK examples:", missing[:30])
+assert len(missing) < len(hsk) // 4, "Dictionary coverage dropped"
+
+font = ROOT / "assets" / "fonts" / "NotoSansCJKsc-Regular.otf"
+assert font.is_file() and font.stat().st_size > 10000000
+spec = (ROOT / "buildozer.spec").read_text(encoding="utf-8")
+assert "sqlite3,otf,ttf" in spec
+assert 'CJK_BUNDLE,' in code and 'font=CJK_FONT' in code
 print("PASS: screenshots, Vietnamese gloss cleanup, 24 PNG asset generation, "
       "fixed navigation, 11,092 HSK entries and flashcard/CVDICT integration")
