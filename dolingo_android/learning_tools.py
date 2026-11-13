@@ -48,4 +48,5 @@ def is_due(item, today=None):
     due = (item or {}).get("due", "")
     if not due:
         return True
-    return due <= (today or date.today()).isoformat()
+    current = date.fromisoformat(today) if isinstance(today, str) else (today or date.today())
+    return due <= current.isoformat()
