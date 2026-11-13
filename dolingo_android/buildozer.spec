@@ -3,8 +3,8 @@ title = Dolingo Study Studio
 package.name = dolingohskfix
 package.domain = org.dolingo.study
 source.dir = .
-source.include_exts = py,csv,json,txt,png,jpg,kv
-version = 1.2.0
+source.include_exts = py,csv,json,txt,png,jpg,kv,sqlite3
+version = 1.2.1
 requirements = python3==3.11.9,hostpython3==3.11.9,kivy==2.3.0
 orientation = portrait
 fullscreen = 0
