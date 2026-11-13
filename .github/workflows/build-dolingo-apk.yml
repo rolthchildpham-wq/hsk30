@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - dolingo-android-apk
+      - feature/cvdict-offline-1-2-1
     paths:
       - 'dolingo_android/**'
       - '.github/workflows/build-dolingo-apk.yml'
@@ -22,15 +23,84 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip python3-venv autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev cmake libffi-dev libssl-dev
-          python3 -m pip install --user 'buildozer==1.5.0' 'cython==0.29.37' 'setuptools<76'
+          python3 -m pip install --user 'buildozer==1.5.0' 'cython==0.29.37' 'setuptools<76' 'Pillow>=9,<12' 'fonttools>=4,<5' 'cmudict>=1.0,<2'
+      - name: Restore persistent app signing key when configured
+        env:
+          DOLINGO_DEBUG_KEYSTORE_BASE64: ${{ secrets.DOLINGO_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$DOLINGO_DEBUG_KEYSTORE_BASE64" ]; then
+            mkdir -p "$HOME/.android"
+            umask 077
+            printf '%s' "$DOLINGO_DEBUG_KEYSTORE_BASE64" | base64 -d > "$HOME/.android/debug.keystore"
+            keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey > /dev/null
+            echo "Persistent debug signing key restored"
+          else
+            echo "::warning::No persistent signing key. This APK is for fresh install/testing ONLY; it may NOT update an already-installed APK."
+          fi
       - name: Copy official HSK dataset into app
         run: |
           mkdir -p dolingo_android/data
           cp hsk30.csv dolingo_android/data/hsk30.csv
           test -s dolingo_android/data/hsk30.csv
+      - name: Build complete offline CVDICT dictionary
+        run: |
+          python3 dolingo_android/build_cvdict.py
+          python3 - <<'PY'
+          import sqlite3
+          db = sqlite3.connect('dolingo_android/data/cvdict.sqlite3')
+          n = db.execute('select count(*) from entries').fetchone()[0]
+          assert n > 100000, n
+          assert db.execute("select count(*) from entries where simplified='学习'").fetchone()[0] > 0
+          print('CVDICT data ready:', n)
+          PY
+      - name: Generate and verify offline illustrations
+        run: |
+          python3 dolingo_android/build_illustrations.py
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          d = Path('dolingo_android/assets/illustrations')
+          files = list(d.glob('*.png'))
+          assert len(files) >= 24, len(files)
+          assert (d / 'food.png').is_file()
+          for file in files:
+              with Image.open(file) as im:
+                  im.verify()
+          print('Illustrations validated:', len(files))
+          PY
+      - name: Bundle reliable CJK font for Android
+        run: |
+          mkdir -p dolingo_android/assets/fonts
+          curl -fL --retry 3 --connect-timeout 20 \
+            "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf" \
+            -o dolingo_android/assets/fonts/NotoSansCJKsc-Regular.otf
+          test "$(stat -c%s dolingo_android/assets/fonts/NotoSansCJKsc-Regular.otf)" -gt 10000000
+          python3 - <<'PY'
+          from fontTools.ttLib import TTFont
+          f=TTFont("dolingo_android/assets/fonts/NotoSansCJKsc-Regular.otf")
+          chars=set()
+          for table in f["cmap"].tables:
+              chars.update(table.cmap.keys())
+          for char in "午饭学习中文":
+              assert ord(char) in chars, char
+          print("CJK glyph coverage verified")
+          PY
+      - name: Generate real offline English IPA pronunciations
+        run: |
+          python3 dolingo_android/build_ipa.py
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path("dolingo_android/data/english_ipa.json").read_text(encoding="utf-8"))
+          assert len(d)>=800, len(d)
+          print("English IPA entries:",len(d))
+          PY
+      - name: Run screenshot regression checks
+        run: |
+          python3 dolingo_android/test_regressions.py
       - name: Check bundled data and app source before Android build
         run: |
-          python3 -m py_compile dolingo_android/main.py
+          python3 -m py_compile dolingo_android/main.py dolingo_android/cvdict_search.py dolingo_android/build_cvdict.py dolingo_android/build_illustrations.py
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -60,7 +130,7 @@ jobs:
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: Dolingo-HSK-Android-APK
+          name: Dolingo-HSK-Android-APK-test-build
           path: dolingo_android/bin/*.apk
           if-no-files-found: error
           retention-days: 30

@@ -1,7 +1,9 @@
-"""Dolingo 1.1: offline HSK and English mobile lessons."""
+"""Dolingo 1.2.1: pastel study dashboard, flashcards and CVDICT offline."""
 import json
 import os
 import random
+import re
+import unicodedata
 import traceback
 from collections import defaultdict
 from functools import partial
@@ -16,35 +18,52 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.label import Label
+from kivy.uix.image import Image
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
+from kivy.uix.popup import Popup
+from cvdict_search import Dictionary
+from tts_android import Pronouncer
+from learning_tools import tone_of_pinyin, review_update, is_due
+from voice_recorder import VoiceRecorder
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 HSK_PATH = os.path.join(ROOT, "data", "words_hsk30_real.json")
 EN_PATH = os.path.join(ROOT, "data", "english_learner_thesaurus.json")
+IPA_PATH = os.path.join(ROOT, "data", "english_ipa.json")
+READING_PATH = os.path.join(ROOT, "data", "reading_passages.json")
 VI_PATH = os.path.join(ROOT, "data", "vi_starter.json")
 CVDICT_PATH = os.path.join(ROOT, "data", "vi_hsk_cvdict.json")
-BG = (0.975, 0.966, 0.943, 1)
-INK = (0.11, 0.19, 0.17, 1)
-GREEN = (0.064, 0.24, 0.19, 1)
-MINT = (0.83, 0.92, 0.85, 1)
-GOLD = (0.96, 0.73, 0.36, 1)
+ILLUSTRATION_DIR = os.path.join(ROOT, "assets", "illustrations")
+BG = (0.974, 0.980, 0.996, 1)
+INK = (0.16, 0.20, 0.29, 1)
+GREEN = (0.10, 0.36, 0.32, 1)  # Deep teal for legible labels
+ACCENT = (0.27, 0.65, 0.53, 1)
+MINT = (0.86, 0.96, 0.91, 1)
+GOLD = (1.00, 0.84, 0.52, 1)
 WHITE = (1, 1, 1, 1)
-MUTED = (0.44, 0.50, 0.46, 1)
+MUTED = (0.39, 0.44, 0.52, 1)
+PINK = (1.00, 0.88, 0.92, 1)
+LAVENDER = (0.92, 0.90, 0.99, 1)
+SKY = (0.85, 0.93, 1.00, 1)
+PEACH = (1.00, 0.92, 0.85, 1)
+LEMON = (1.00, 0.96, 0.80, 1)
 FONT = "Roboto"
 CJK_FONT = FONT
+CJK_BUNDLE = os.path.join(ROOT, "assets", "fonts", "NotoSansCJKsc-Regular.otf")
 
 
 def select_fonts():
     global FONT, CJK_FONT
-    # Android has native Vietnamese and CJK fonts. Register explicitly so Kivy
-    # does not replace Chinese characters with missing-glyph boxes.
+    # Use bundled CJK OTF first; Android .ttc often fails with SDL2/Kivy.
+    # Keep Vietnamese text separate, rendered with a Latin font.
     common = [
         "/system/fonts/NotoSans-Regular.ttf",
         "/system/fonts/Roboto-Regular.ttf",
     ]
     cjk = [
+        CJK_BUNDLE,
         "/system/fonts/NotoSansCJK-Regular.ttc",
         "/system/fonts/NotoSansSC-Regular.otf",
         "/system/fonts/NotoSansCJKsc-Regular.otf",
@@ -96,8 +115,8 @@ def label(text="", size=16, color=INK, bold=False, height=None,
     return widget
 
 
-def button(text, callback, bg=GREEN, fg=WHITE, height=50, size=15):
-    widget = Button(text=text, font_name=FONT, font_size=dp(size), bold=True,
+def button(text, callback, bg=GREEN, fg=WHITE, height=50, size=15, font=None):
+    widget = Button(text=text, font_name=font or FONT, font_size=dp(size), bold=True,
                     color=fg, background_normal="", background_down="",
                     background_color=bg, size_hint_y=None, height=dp(height))
     widget.bind(on_release=lambda *_: callback())
@@ -123,6 +142,38 @@ ICON_WORDS = {
     "clock": "时间 时 点 今天 明天 yesterday today time",
     "computer": "电脑 computer laptop"
 }
+# Explicit word-to-image mapping avoids unrelated illustrations.
+# PNG assets are generated during the APK build and included offline.
+ILLUSTRATED_WORDS = {
+    "午饭": "food", "午餐": "food", "吃饭": "food", "饭": "food",
+    "早饭": "breakfast", "早餐": "breakfast", "晚饭": "dinner", "晚餐": "dinner",
+    "米饭": "rice", "苹果": "apple", "apple": "apple",
+    "书": "book", "书本": "book", "读书": "book", "book": "book",
+    "家": "home", "房子": "home", "home": "home", "house": "home",
+    "学校": "school", "school": "school",
+    "老师": "teacher", "teacher": "teacher",
+    "太阳": "sun", "sun": "sun", "月亮": "moon", "moon": "moon",
+    "花": "flower", "flower": "flower", "树": "tree", "tree": "tree",
+    "水": "water", "water": "water", "茶": "cup", "杯子": "cup", "tea": "cup",
+    "汽车": "car", "车": "car", "car": "car", "飞机": "plane", "plane": "plane",
+    "手机": "phone", "电话": "phone", "phone": "phone",
+    "时间": "clock", "钟": "clock", "clock": "clock",
+    "爱": "heart", "love": "heart",
+    "云": "cloud", "cloud": "cloud", "电脑": "computer", "computer": "computer",
+    "猫": "cat", "cat": "cat", "狗": "dog", "dog": "dog",
+    "人": "person", "朋友": "person", "person": "person",
+}
+
+def clean_vi_gloss(value):
+    """Remove CVDICT classifier metadata and broken legacy glyphs from UI."""
+    text = unicodedata.normalize("NFC", str(value or "")).strip()
+    # HSK flashcards need a readable Vietnamese gloss, not technical metadata.
+    text = re.split(r"(?i)LT\s*:", text, maxsplit=1)[0]
+    text = text.replace("\ufffd", "").replace("\u200b", "")
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cc" or ch in "\n\t")
+    text = text.strip(" ;,/\t\n")
+    return text[:220]
+
 ICON_BY_WORD = {}
 for _kind, _words in ICON_WORDS.items():
     for _word in _words.split():
@@ -238,8 +289,10 @@ class Picture(Widget):
                 rect(-24,-37,48,5,white)
 
 
-def load_courses():
+def load_courses(dictionary=None):
     groups = defaultdict(list)
+    missing_hsk = 0
+    missing_english = 0
     with open(VI_PATH, "r", encoding="utf-8") as stream:
         vi = json.load(stream)
     with open(CVDICT_PATH, "r", encoding="utf-8") as stream:
@@ -251,34 +304,53 @@ def load_courses():
         word = str(item.get("word") or "").strip()
         if not group.startswith("HSK ") or not word:
             continue
+        headword = word.split("|")[0]
+        definition = clean_vi_gloss(vi["hsk"].get(headword, "")
+                                    or item.get("vi")
+                                    or cvdict.get(str(item.get("id") or ""), ""))
+        if not definition and dictionary is not None and dictionary.available:
+            definition = clean_vi_gloss(dictionary.exact_meaning(
+                headword, str(item.get("traditional") or "").split("|")[0]))
+        if not definition:
+            missing_hsk += 1
         groups[group].append({
             "word": word,
             "reading": str(item.get("pinyin") or ""),
             "meaning": str(item.get("en") or "").strip(),
-            "vi": str(item.get("vi") or vi["hsk"].get(word.split("|")[0], "") or cvdict.get(str(item.get("id") or ""), "")).strip(),
-            "picture": ICON_BY_WORD.get(word.split("|")[0], ""),
+            "vi": definition,
+            "picture": ILLUSTRATED_WORDS.get(word.split("|")[0], "") or ICON_BY_WORD.get(word.split("|")[0], ""),
             "other": str(item.get("traditional") or "").strip(),
             "source": "HSK 3.0 - ivankra/hsk30",
             "course": "HSK"
         })
     with open(EN_PATH, "r", encoding="utf-8") as stream:
         english = json.load(stream)
+    ipa_map = {}
+    if os.path.isfile(IPA_PATH):
+        with open(IPA_PATH, "r", encoding="utf-8") as stream:
+            ipa_map = json.load(stream)
     for item in english.get("entries", []):
         level = str(item.get("level") or "")
         word = str(item.get("word") or "").strip()
         meaning = str(item.get("definition") or "").strip()
         if level in ("1", "2", "3") and word and meaning:
+            english_vi = clean_vi_gloss(vi["english"].get(word.lower(), ""))
+            if not english_vi:
+                missing_english += 1
             groups["English " + level].append({
                 "word": word,
-                "reading": str(item.get("pos") or ""),
+                "reading": "",
+                "pos": str(item.get("pos") or ""),
+                "ipa": str(item.get("ipa") or item.get("phonetic") or ipa_map.get(word.lower(), "")),
                 "meaning": meaning,
-                "vi": str(vi["english"].get(word.lower(), "")).strip(),
-                "picture": ICON_BY_WORD.get(word.lower(), ""),
+                "vi": english_vi,
+                "picture": ILLUSTRATED_WORDS.get(word.lower(), "") or ICON_BY_WORD.get(word.lower(), ""),
                 "other": ", ".join(item.get("synonyms") or []),
                 "source": "carryword/english-vocabulary (MIT)",
                 "course": "English"
             })
-    return dict(groups), len(hsk), len(english.get("entries", []))
+    return (dict(groups), len(hsk), len(english.get("entries", [])),
+            missing_hsk, missing_english)
 
 
 class DolingoApp(App):
@@ -286,28 +358,53 @@ class DolingoApp(App):
         select_fonts()
         self.title = "Dolingo | Study Studio"
         self.data = {}
+        self.dictionary = Dictionary()
+        self.pronouncer = Pronouncer()
+        self.recorder = VoiceRecorder(os.path.join(self.user_data_dir, "recordings"))
+        self.recording = False
+        self.reading_index = 0
+        self.fill_index = 0
+        self.match_left = None
+        self.match_right = None
+        self.match_pairs = []
+        self.match_done = set()
+        try:
+            with open(READING_PATH, encoding="utf-8") as stream:
+                self.reading_passages = json.load(stream).get("passages", [])
+        except (OSError, ValueError):
+            self.reading_passages = []
+        self.saved_words = []
         self.hsk_count = 0
         self.en_count = 0
-        self.mode = "learn"
+        self.missing_hsk = 0
+        self.missing_english = 0
+        self.mode = "dashboard"
         self.group = "HSK 1"
         self.deck = []
         self.index = 0
         self.correct = 0
         self.attempts = 0
         self.reveal = False
+        self.flashcard_flipped = False
         self.progress = {}
         self._load_progress()
+        self.saved_words = list(self.progress.get("_cvdict_saved", []))
         self.xp = int(self.progress.get("_xp", 0))
         self.streak = int(self.progress.get("_streak", 0))
+        self.show_pinyin = bool(self.progress.get("_show_pinyin", True))
         self.root_panel = Panel(color=BG, radius=0, orientation="vertical")
-        self.root_panel.add_widget(label("DOLINGO", 25, GREEN, True, 58, align="center"))
-        self.root_panel.add_widget(label("HỌC NGOẠI NGỮ MỖI NGÀY", 12, MUTED,
-                                         False, 26, align="center"))
+
         self.status = label("Đang chuẩn bị bài học...", 14, MUTED, height=40,
                             align="center")
         self.root_panel.add_widget(self.status)
+        self.fixed_nav = BoxLayout(orientation="vertical", size_hint_y=None, height=dp(55))
+        self.root_panel.add_widget(self.fixed_nav)
         self.main_scroll = ScrollView(do_scroll_x=False, bar_width=dp(3))
         self.root_panel.add_widget(self.main_scroll)
+        self.bottom_nav = Panel(color=WHITE, radius=0, size_hint_y=None,
+                                height=dp(67), padding=[dp(8), dp(6), dp(8), dp(7)],
+                                spacing=dp(4))
+        self.root_panel.add_widget(self.bottom_nav)
         self.body = BoxLayout(orientation="vertical", size_hint_y=None,
                               padding=[dp(15), dp(10), dp(15), dp(20)],
                               spacing=dp(12))
@@ -335,10 +432,12 @@ class DolingoApp(App):
 
     def _initialize(self, *_):
         try:
-            self.data, self.hsk_count, self.en_count = load_courses()
+            (self.data, self.hsk_count, self.en_count,
+             self.missing_hsk, self.missing_english) = load_courses(self.dictionary)
             self.status.text = ("%s từ HSK 3.0  •  %s mục English  •  Offline" %
                                 (self.hsk_count, self.en_count))
             self.change_group("HSK 1")
+            self.change_mode("dashboard")
         except Exception as exc:
             traceback.print_exc()
             self.status.text = "Không tải được dữ liệu học"
@@ -347,72 +446,257 @@ class DolingoApp(App):
             self.body.add_widget(button("Thử lại", lambda: self._initialize()))
 
     def _top_navigation(self):
-        course = Panel(color=WHITE, radius=16, size_hint_y=None, height=dp(60),
-                       padding=dp(7), spacing=dp(8))
-        a = button("HSK 3.0", lambda: self.change_group("HSK 1"),
-                   bg=GREEN if self.group.startswith("HSK") else MINT,
-                   fg=WHITE if self.group.startswith("HSK") else GREEN, height=45)
-        b = button("ENGLISH", lambda: self.change_group("English 1"),
-                   bg=GREEN if self.group.startswith("English") else MINT,
-                   fg=WHITE if self.group.startswith("English") else GREEN, height=45)
-        course.add_widget(a)
-        course.add_widget(b)
-        self.body.add_widget(course)
+        """Keep top branding quiet; the actual primary navigation is bottom-fixed."""
+        header = Panel(color=WHITE, radius=0, size_hint_y=None, height=dp(55),
+                       padding=[dp(15), 0, dp(15), 0], spacing=dp(6))
+        header.add_widget(label("DOLINGO", 23, GREEN, True, 50))
+        header.add_widget(label("HSK  •  ENGLISH  •  OFFLINE", 10,
+                                MUTED, height=50, align="right"))
+        self.fixed_nav.add_widget(header)
+        self._bottom_navigation()
 
-        levels = ["HSK " + str(n) for n in range(1, 10)] if self.group.startswith("HSK") else [
-            "English 1", "English 2", "English 3"]
-        levels = [name for name in levels if name in self.data]
-        picker = Spinner(text=self.group, values=levels, font_name=FONT,
-                         font_size=dp(16), color=INK, background_normal="",
-                         background_color=MINT, size_hint_y=None, height=dp(50))
-        picker.bind(text=lambda _inst, name: self.change_group(name)
-                    if name != self.group else None)
-        self.body.add_widget(picker)
+        if self.mode in ("learn", "quiz", "saved"):
+            selector_row = Panel(color=WHITE, radius=16, size_hint_y=None,
+                                 height=dp(60), padding=dp(6), spacing=dp(8))
+            selector_row.add_widget(button("HSK", lambda: self.change_group("HSK 1"),
+                                           bg=MINT if self.group.startswith("HSK") else BG,
+                                           fg=GREEN, height=47, size=13))
+            selector_row.add_widget(button("ENGLISH",
+                                           lambda: self.change_group("English 1"),
+                                           bg=SKY if self.group.startswith("English") else BG,
+                                           fg=GREEN, height=47, size=13))
+            selector_row.add_widget(button("CVDICT", self.open_dictionary,
+                                           bg=LEMON, fg=GREEN, height=47, size=13))
+            self.body.add_widget(selector_row)
+            levels = (["HSK " + str(i) for i in range(1, 10)]
+                      if self.group.startswith("HSK")
+                      else ["English 1", "English 2", "English 3"])
+            levels = [name for name in levels if name in self.data]
+            select = Spinner(text=self.group, values=levels, font_name=FONT,
+                             font_size=dp(15), color=INK, background_normal="",
+                             background_color=LAVENDER, size_hint_y=None,
+                             height=dp(50))
+            select.bind(text=lambda _inst, name: self.change_group(name)
+                        if name != self.group else None)
+            self.body.add_widget(select)
 
-        tools = Panel(color=WHITE, radius=16, size_hint_y=None, height=dp(58),
-                      padding=dp(6), spacing=dp(6))
-        tools.add_widget(button("HỌC TỪ", lambda: self.change_mode("learn"),
-                                bg=GREEN if self.mode=="learn" else MINT,
-                                fg=WHITE if self.mode=="learn" else GREEN, height=46))
-        tools.add_widget(button("LUYỆN TẬP", lambda: self.change_mode("quiz"),
-                                bg=GREEN if self.mode=="quiz" else MINT,
-                                fg=WHITE if self.mode=="quiz" else GREEN, height=46))
-        tools.add_widget(button("TÌM TỪ", lambda: self.change_mode("search"),
-                                bg=GREEN if self.mode=="search" else MINT,
-                                fg=WHITE if self.mode=="search" else GREEN, height=46))
-        self.body.add_widget(tools)
+    def _bottom_navigation(self):
+        self.bottom_nav.clear_widgets()
+        # Five large hit targets reflect the library-first layout in the reference video.
+        items = [
+            ("TRANG CHỦ", "dashboard"),
+            ("HỌC TỪ", "learn"),
+            ("THƯ VIỆN", "library"),
+            ("ĐÃ LƯU", "saved"),
+            ("CÁ NHÂN", "profile")
+        ]
+        for title, mode in items:
+            active = (self.mode == mode or
+                      (self.mode == "quiz" and mode == "learn"))
+            self.bottom_nav.add_widget(
+                button(title, partial(self.change_mode, mode),
+                       bg=GREEN if active else WHITE,
+                       fg=WHITE if active else MUTED,
+                       height=52, size=10)
+            )
+
+    def render_library(self):
+        """Browse actual bundled vocabulary by level, without fake video records."""
+        self.body.add_widget(label("THƯ VIỆN HỌC TẬP", 21, GREEN, True, 48))
+        self.body.add_widget(label("Khám phá từng cấp độ từ dữ liệu có sẵn.",
+                                   13, MUTED, height=35))
+        for title, prefix, shade in (("TIẾNG TRUNG  •  HSK 3.0", "HSK ", LAVENDER),
+                                     ("TIẾNG ANH  •  ENGLISH", "English ", SKY)):
+            self.body.add_widget(label(title, 15, GREEN, True, 37))
+            for group in sorted((x for x in self.data if x.startswith(prefix)),
+                                key=lambda x: int(re.search(r"\d+", x).group())):
+                count = len(self.data[group])
+                card = Panel(color=shade, radius=16, orientation="vertical",
+                             padding=[dp(14), dp(10), dp(14), dp(10)],
+                             size_hint_y=None, height=dp(104), spacing=dp(4))
+                card.add_widget(label(group + "  •  " + str(count) + " từ",
+                                      16, INK, True, 36))
+                card.add_widget(button("HỌC CẤP ĐỘ NÀY",
+                                       partial(self.change_group, group),
+                                       bg=GREEN, fg=WHITE, height=44, size=12))
+                self.body.add_widget(card)
+
+    def render_profile(self):
+        """Local profile: no unsupported account sync promises."""
+        self.body.add_widget(label("KHÔNG GIAN CỦA BẠN", 21, GREEN, True, 47))
+        profile = Panel(color=LAVENDER, radius=20, orientation="vertical",
+                        padding=[dp(15), dp(12), dp(15), dp(12)],
+                        size_hint_y=None, height=dp(184), spacing=dp(8))
+        profile.add_widget(label("Tiến độ học trên thiết bị", 17, GREEN, True, 36))
+        profile.add_widget(label("XP: %d   •   Chuỗi đúng: %d" %
+                                  (self.xp, self.streak), 15, INK, height=40))
+        profile.add_widget(label("Từ HSK: %d   •   English: %d" %
+                                  (self.hsk_count, self.en_count), 13, MUTED,
+                                  height=34))
+        profile.add_widget(label("Dữ liệu cá nhân được giữ trên máy.",
+                                  12, MUTED, height=30))
+        self.body.add_widget(profile)
+        self.body.add_widget(button("ÔN FLASHCARD ĐÃ LƯU",
+                                    lambda: self.change_mode("saved"),
+                                    bg=MINT, fg=GREEN))
+        self.body.add_widget(button("HIỂN THỊ PINYIN: " + ("BẬT" if self.show_pinyin else "TẮT"),
+                                    self.toggle_pinyin, bg=PEACH, fg=GREEN))
+        self.body.add_widget(button("LUYỆN THANH ĐIỆU",
+                                    lambda: self.change_mode("tones"), bg=LEMON, fg=GREEN))
+        self.body.add_widget(button("ĐỌC HIỂU TƯƠNG TÁC",
+                                    lambda: self.change_mode("reading"), bg=SKY, fg=GREEN))
+        self.body.add_widget(button("LUYỆN NÓI – GHI ÂM",
+                                    lambda: self.change_mode("speaking"), bg=PINK, fg=GREEN))
+        self.body.add_widget(button("LUYỆN TẬP TRẮC NGHIỆM",
+                                    lambda: self.change_mode("quiz"),
+                                    bg=SKY, fg=GREEN))
+        if self.dictionary.available:
+            self.body.add_widget(button("TRA CVDICT NGOẠI TUYẾN",
+                                        self.open_dictionary,
+                                        bg=LEMON, fg=GREEN))
+        self.body.add_widget(label("Chưa bật đăng nhập hoặc đồng bộ cloud.",
+                                   12, MUTED, height=40))
+
+    def _stat_card(self, heading, value, note, shade):
+        card = Panel(color=shade, radius=19, orientation="vertical",
+                     size_hint_y=None, height=dp(125),
+                     padding=[dp(14), dp(13), dp(10), dp(12)],
+                     spacing=dp(2))
+        card.add_widget(label(heading, 12, GREEN, True, 25))
+        card.add_widget(label(str(value), 27, INK, True, 47))
+        card.add_widget(label(note, 11, MUTED, height=25))
+        return card
+
+    def _action_card(self, heading, note, shade, callback):
+        card = Panel(color=shade, radius=18, orientation="vertical",
+                     size_hint_y=None, height=dp(153),
+                     padding=[dp(11), dp(12), dp(11), dp(11)], spacing=dp(4))
+        card.add_widget(label(heading, 15, GREEN, True, 33))
+        card.add_widget(label(note, 12, INK, height=37))
+        card.add_widget(button("MỞ NGAY", callback, bg=GREEN, fg=WHITE,
+                               height=45, size=12))
+        return card
+
+    def render_dashboard(self):
+        hero = Panel(color=LAVENDER, radius=23, orientation="vertical",
+                     size_hint_y=None, height=dp(192), spacing=dp(7),
+                     padding=[dp(17), dp(16), dp(17), dp(15)])
+        hero.add_widget(label("CHÀO MỪNG TRỞ LẠI!", 12, GREEN, True, 28))
+        hero.add_widget(label("Hôm nay học gì?", 25, INK, True, 42))
+        hero.add_widget(label("Mỗi ngày một chút, tiến bộ thật nhiều.",
+                              13, MUTED, height=30))
+        hero.add_widget(button("TIẾP TỤC  •  " + self.group,
+                               lambda: self.change_mode("learn"),
+                               bg=GREEN, fg=WHITE, height=50, size=14))
+        self.body.add_widget(hero)
+
+        self.body.add_widget(label("THÀNH TÍCH CỦA BẠN", 15, GREEN, True, 36))
+        row = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(125))
+        row.add_widget(self._stat_card("KINH NGHIỆM", self.xp, "Điểm XP", PEACH))
+        row.add_widget(self._stat_card("CHUỖI ĐÚNG", self.streak, "Câu liên tiếp", SKY))
+        self.body.add_widget(row)
+        row = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(125))
+        saved_count = len(self.progress.get("_flashcard_saved", []))
+        row.add_widget(self._stat_card("THẺ ĐÃ LƯU", saved_count,
+                                       "Để ôn tập", PINK))
+        row.add_widget(self._stat_card("ĐÃ HỌC", self.progress.get(self.group, 0),
+                                       "Lượt xem " + self.group, MINT))
+        self.body.add_widget(row)
+
+        self.body.add_widget(label("KHÁM PHÁ NGAY", 15, GREEN, True, 36))
+        row = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(153))
+        row.add_widget(self._action_card("Học HSK 3.0", "Từ vựng tiếng Trung",
+                                          LAVENDER, lambda: self.change_group("HSK 1")))
+        row.add_widget(self._action_card("Học English", "Từ vựng tiếng Anh",
+                                          SKY, lambda: self.change_group("English 1")))
+        self.body.add_widget(row)
+        row = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(153))
+        row.add_widget(self._action_card("Flashcard", "Xem thẻ đã lưu",
+                                          PINK, lambda: self.change_mode("saved")))
+        row.add_widget(self._action_card("Từ điển", "Tra cứu CVDICT",
+                                          LEMON, self.open_dictionary))
+        self.body.add_widget(row)
+
+        self.body.add_widget(label("LUYỆN KỸ NĂNG", 15, GREEN, True, 36))
+        skills = BoxLayout(spacing=dp(10), size_hint_y=None, height=dp(153))
+        skills.add_widget(self._action_card("Đọc hiểu", "Chạm từ để tra",
+                                             SKY, lambda: self.change_mode("reading")))
+        skills.add_widget(self._action_card("Luyện nói", "Nghe và tự ghi âm",
+                                             PINK, lambda: self.change_mode("speaking")))
+        self.body.add_widget(skills)
+        self.body.add_widget(button("BÀI TẬP ĐIỀN TỪ", lambda: self.change_mode("fill"),
+                                    bg=PEACH, fg=GREEN, height=49))
+        self.body.add_widget(button("BÀI TẬP GHÉP CẶP", lambda: self.change_mode("match"),
+                                    bg=MINT, fg=GREEN, height=49))
+        self.body.add_widget(button("XEM TOÀN BỘ THƯ VIỆN HỌC TẬP",
+                                    lambda: self.change_mode("library"),
+                                    bg=MINT, fg=GREEN, height=52))
+        tip = Panel(color=WHITE, radius=19, orientation="vertical",
+                    padding=[dp(15), dp(10), dp(15), dp(10)],
+                    size_hint_y=None, height=dp(96), spacing=dp(5))
+        tip.add_widget(label("MẸO HỌC TẬP", 14, GREEN, True, 28))
+        tip.add_widget(label("Học 5 từ mới, lật thẻ và lưu những từ khó.",
+                             13, INK, height=45))
+        self.body.add_widget(tip)
 
     def change_group(self, group):
         if group not in self.data:
             return
         self.group = group
         self.deck = list(self.data[group])
+        self.match_pairs = []
+        self.match_done = set()
+        self.fill_index = 0
         random.shuffle(self.deck)
         self.index = 0
         self.reveal = False
         self.correct = 0
         self.attempts = 0
         self.mode = "learn"
+        self.flashcard_flipped = False
         self.render()
+        Clock.schedule_once(lambda *_: setattr(self.main_scroll, "scroll_y", 1), 0)
 
     def change_mode(self, mode):
         self.mode = mode
         self.reveal = False
+        self.flashcard_flipped = False
         self.render()
+        Clock.schedule_once(lambda *_: setattr(self.main_scroll, "scroll_y", 1), 0)
 
     def render(self):
         self.body.clear_widgets()
+        self.fixed_nav.clear_widgets()
         self._top_navigation()
-        self.body.add_widget(label("XP: %d     •     Chuỗi đúng: %d" % (self.xp, self.streak), 14, GREEN, True, 32))
-        if self.mode == "search":
+        if self.mode != "dashboard":
+            self.body.add_widget(label("XP: %d     •     Chuỗi đúng: %d" % (self.xp, self.streak), 14, GREEN, True, 32))
+        if self.mode == "dashboard":
+            self.render_dashboard()
+        elif self.mode == "library":
+            self.render_library()
+        elif self.mode == "profile":
+            self.render_profile()
+        elif self.mode == "saved":
+            self.render_saved()
+        elif self.mode == "search":
             self.render_search()
+        elif self.mode == "reading":
+            self.render_reading()
+        elif self.mode == "speaking":
+            self.render_speaking()
+        elif self.mode == "fill":
+            self.render_fill_exercise()
+        elif self.mode == "match":
+            self.render_matching_exercise()
+        elif self.mode == "tones":
+            self.render_tone_practice()
         elif self.mode == "quiz":
             self.render_quiz()
         else:
             self.render_learn()
 
     def _card(self, min_height=350):
-        return Panel(color=GREEN, radius=23, orientation="vertical",
+        return Panel(color=WHITE, radius=23, orientation="vertical",
                      padding=[dp(16), dp(18), dp(16), dp(18)],
                      spacing=dp(10), size_hint_y=None, height=dp(min_height))
 
@@ -426,49 +710,452 @@ class DolingoApp(App):
         self.body.add_widget(label("Đã xem %d từ  •  Từ %d / %d" %
                                    (viewed, self.index+1, len(self.deck)),
                                    14, GREEN, True, 32))
-        card = self._card(630 if item["picture"] else 485)
-        card.add_widget(label("FLASHCARD  •  " + self.group, 12, GOLD, True, 29))
-        if item["picture"]:
-            picture_bg = Panel(color=(0.15, 0.37, 0.29, 1), radius=16,
-                               size_hint_y=None, height=dp(125), padding=dp(5))
-            picture_bg.add_widget(Picture(item["picture"]))
-            card.add_widget(picture_bg)
-        card.add_widget(label(item["word"], 36 if len(item["word"]) < 14 else 26,
-                              WHITE, True, 65,
-                              font=CJK_FONT if item["course"]=="HSK" else FONT,
-                              align="center"))
-        card.add_widget(label(item["reading"], 17, GOLD, False, 32, align="center"))
-        card.add_widget(label("NGHĨA TIẾNG VIỆT", 12, MINT, True, 24))
-        card.add_widget(label(item["vi"] or "Chưa có bản dịch tiếng Việt",
-                              18, WHITE, True, 54, align="center"))
-        card.add_widget(label("ENGLISH DEFINITION", 11, MINT, True, 22))
-        desc = item["meaning"] or "English meaning pending review"
-        card.add_widget(label(desc[:330], 13, WHITE, height=105, align="center"))
-        card.add_widget(label("Nguồn: " + item["source"], 10, MINT, height=21,
-                              align="center"))
+        card = self._card(370 if self.flashcard_flipped else (455 if item["picture"] else 310))
+        card.add_widget(label(("MẶT SAU  •  " if self.flashcard_flipped else "MẶT TRƯỚC  •  ") + self.group,
+                              12, GREEN, True, 29))
+        if self.flashcard_flipped:
+            card.add_widget(label("NGHĨA TIẾNG VIỆT", 12, GREEN, True, 30))
+            card.add_widget(label(item["vi"] or "Chưa có bản dịch tiếng Việt", 21,
+                                  INK, True, 98, align="center"))
+            card.add_widget(label(item["reading"], 18, GREEN, height=42, align="center"))
+            card.add_widget(label((item["meaning"] or "")[:240], 13, MUTED,
+                                  height=105, align="center"))
+        else:
+            if item["picture"]:
+                picture_bg = Panel(color=SKY, radius=16,
+                                   size_hint_y=None, height=dp(170), padding=dp(5))
+                image_path = os.path.join(ILLUSTRATION_DIR, item["picture"] + ".png")
+                if os.path.isfile(image_path):
+                    picture_bg.add_widget(Image(source=image_path, fit_mode="contain"))
+                else:
+                    picture_bg.add_widget(Picture(item["picture"]))
+                card.add_widget(picture_bg)
+            card.add_widget(label(item["word"], 36 if len(item["word"]) < 14 else 26,
+                                  INK, True, 104, font=CJK_FONT if item["course"]=="HSK" else FONT,
+                                  align="center"))
+            if item["course"] == "HSK" and self.show_pinyin:
+                card.add_widget(label(item["reading"] or "Pinyin chưa có dữ liệu", 17,
+                                      GREEN, height=36, align="center"))
+            elif item["course"] == "English":
+                card.add_widget(label(item.get("ipa") or "IPA chưa có dữ liệu", 16,
+                                      GREEN, height=36, align="center"))
+            card.add_widget(label("Hãy đoán nghĩa trước khi lật thẻ", 13, MUTED,
+                                  height=40, align="center"))
         self.body.add_widget(card)
+        self.body.add_widget(button("NGHE PHÁT ÂM  •  " + ("TRUNG" if item["course"] == "HSK" else "ANH"),
+                                    partial(self.pronounce_item, item), bg=SKY, fg=GREEN,
+                                    height=52))
+        self.body.add_widget(button("LẬT THẺ  •  XEM NGHĨA" if not self.flashcard_flipped
+                                    else "LẬT LẠI  •  XEM TỪ", self.flip_flashcard,
+                                    bg=GOLD, fg=INK))
+        key = self.group + "|" + item["word"]
+        saved = self.progress.get("_flashcard_saved", [])
+        self.body.add_widget(button("BỎ LƯU THẺ" if key in saved else "LƯU FLASHCARD",
+                                    self.toggle_flashcard_saved, bg=MINT, fg=GREEN))
         if item["other"]:
-            self.body.add_widget(label(
-                ("Phồn thể: " if item["course"]=="HSK" else "Đồng nghĩa: ") +
-                item["other"][:120], 14, MUTED, height=52,
-                font=CJK_FONT if item["course"]=="HSK" else FONT))
+            if item["course"] == "HSK":
+                # Never mix Vietnamese labels with CJK-only font glyph runs.
+                self.body.add_widget(label("CHỮ PHỒN THỂ", 12, GREEN, True, 24))
+                self.body.add_widget(label(item["other"][:100], 17, MUTED,
+                                           height=43, font=CJK_FONT))
+            else:
+                self.body.add_widget(label("Đồng nghĩa: " + item["other"][:120],
+                                           14, MUTED, height=52))
+        reviews = BoxLayout(size_hint_y=None, height=dp(50), spacing=dp(7))
+        reviews.add_widget(button("CHƯA NHỚ", partial(self.mark_review, item, "again"),
+                                  bg=PINK, fg=GREEN, height=46, size=12))
+        reviews.add_widget(button("KHÓ", partial(self.mark_review, item, "hard"),
+                                  bg=PEACH, fg=GREEN, height=46, size=12))
+        reviews.add_widget(button("ĐÃ NHỚ", partial(self.mark_review, item, "good"),
+                                  bg=MINT, fg=GREEN, height=46, size=12))
+        self.body.add_widget(reviews)
         controls = BoxLayout(size_hint_y=None, height=dp(54), spacing=dp(9))
         controls.add_widget(button("TRỘN LẠI", self.shuffle, bg=MINT, fg=GREEN))
         controls.add_widget(button("TỪ TIẾP  →", self.next_word, bg=GREEN))
+        if item["course"] == "HSK":
+            self.body.add_widget(button("TRA CVDICT  •  " + item["word"][:12],
+                                        lambda: self.open_dictionary(item["word"].split("|")[0]),
+                                        bg=MINT, fg=GREEN))
         self.body.add_widget(controls)
         self.body.add_widget(label("Luyện tập để kiểm tra mức độ ghi nhớ.", 13,
                                    MUTED, height=34, align="center"))
 
+    def pronounce_item(self, item):
+        lang = "zh" if item.get("course") == "HSK" else "en"
+        text = (item.get("word") or "").split("|")[0].strip()
+        success, message = self.pronouncer.speak(text, lang)
+        self.status.text = message
+        return success
+
+    def toggle_pinyin(self):
+        self.show_pinyin = not self.show_pinyin
+        self.progress["_show_pinyin"] = self.show_pinyin
+        self._save_progress()
+        self.render()
+
+    def render_tone_practice(self):
+        if not self.group.startswith("HSK"):
+            self.body.add_widget(label("Luyện thanh điệu dành cho từ HSK.",
+                                       14, MUTED, height=50))
+            self.body.add_widget(button("MỞ HSK 1", lambda: self.change_group("HSK 1")))
+            return
+        usable = [row for row in self.deck if tone_of_pinyin(row.get("reading")) is not None]
+        if not usable:
+            self.body.add_widget(label("Chưa có dữ liệu Pinyin để luyện thanh điệu.",
+                                       14, MUTED, height=70))
+            return
+        item = usable[self.index % len(usable)]
+        tone = tone_of_pinyin(item["reading"])
+        self.body.add_widget(label("LUYỆN NHẬN BIẾT THANH ĐIỆU", 17, GREEN, True, 46))
+        panel = self._card(245)
+        panel.add_widget(label(item["word"], 38, INK, True, 100, font=CJK_FONT,
+                               align="center"))
+        panel.add_widget(label("Nghe từ rồi chọn thanh điệu của âm tiết đầu.",
+                               14, MUTED, height=58, align="center"))
+        self.body.add_widget(panel)
+        self.body.add_widget(button("NGHE TỪ", partial(self.pronounce_item, item),
+                                    bg=SKY, fg=GREEN))
+        for n, name in ((1, "Thanh 1 – ngang"), (2, "Thanh 2 – sắc"),
+                        (3, "Thanh 3 – hỏi"), (4, "Thanh 4 – nặng"),
+                        (5, "Thanh nhẹ")):
+            self.body.add_widget(button(name, partial(self.answer_tone, n, tone),
+                                        bg=WHITE, fg=GREEN, height=48, size=14))
+
+    def answer_tone(self, chosen, expected):
+        correct = chosen == expected
+        self.status.text = "Đúng thanh điệu! +5 XP" if correct else (
+            "Chưa đúng. Đáp án là thanh " + str(expected))
+        if correct:
+            self.xp += 5
+            self.progress["_xp"] = self.xp
+        self.index = (self.index + 1) % max(1, len(self.deck))
+        self._save_progress()
+        self.render()
+
+    def mark_review(self, item, grade):
+        key = self.group + "|" + item["word"]
+        reviews = dict(self.progress.get("_srs", {}))
+        reviews[key] = review_update(reviews.get(key), grade)
+        self.progress["_srs"] = reviews
+        if key not in self.progress.get("_flashcard_saved", []):
+            self.progress.setdefault("_flashcard_saved", []).append(key)
+        self._save_progress()
+        self.status.text = "Đã lên lịch ôn từ: " + item["word"]
+        self.next_word()
+
+    def flip_flashcard(self):
+        self.flashcard_flipped = not self.flashcard_flipped
+        self.render()
+
+    def toggle_flashcard_saved(self):
+        item = self.deck[self.index]
+        key = self.group + "|" + item["word"]
+        saved = list(self.progress.get("_flashcard_saved", []))
+        if key in saved:
+            saved.remove(key)
+        else:
+            saved.append(key)
+        self.progress["_flashcard_saved"] = saved
+        self._save_progress()
+        self.render()
+
+    def render_saved(self):
+        keys = self.progress.get("_flashcard_saved", [])
+        reviews = self.progress.get("_srs", {})
+        due = sum(1 for key in keys if is_due(reviews.get(key)))
+        self.body.add_widget(label("CẦN ÔN HÔM NAY: %d  •  ĐÃ LƯU: %d" % (due, len(keys)),
+                                   14, GREEN, True, 36))
+        self.body.add_widget(label("FLASHCARD ĐÃ LƯU  •  %d TỪ" % len(keys),
+                                   17, GREEN, True, 52))
+        if not keys:
+            self.body.add_widget(label("Chưa có thẻ nào. Vào HỌC TỪ để lưu.",
+                                       14, MUTED, height=85))
+            return
+        for key in keys[-100:]:
+            if "|" not in key:
+                continue
+            group, word = key.split("|", 1)
+            matches = [r for r in self.data.get(group, []) if r["word"] == word]
+            if not matches:
+                continue
+            item = matches[0]
+            card = Panel(color=WHITE, radius=14, orientation="vertical",
+                         padding=dp(10), spacing=dp(5), size_hint_y=None, height=dp(122))
+            card.add_widget(label(word + "  " + item["reading"], 18, GREEN, True,
+                                  48, font=CJK_FONT))
+            card.add_widget(label((item["vi"] or item["meaning"])[:160], 14,
+                                  MUTED, height=55))
+            self.body.add_widget(card)
+
     def shuffle(self):
+        self.flashcard_flipped = False
         random.shuffle(self.deck)
         self.index = 0
         self.render()
 
     def next_word(self):
+        self.flashcard_flipped = False
         self.index = (self.index + 1) % len(self.deck)
         self.progress[self.group] = self.progress.get(self.group, 0) + 1
         self._save_progress()
         self.render()
+
+    def _add_practice_modes(self):
+        row = BoxLayout(size_hint_y=None, height=dp(51), spacing=dp(7))
+        for caption, mode in (("TRẮC NGHIỆM", "quiz"), ("ĐIỀN TỪ", "fill"),
+                              ("GHÉP CẶP", "match")):
+            row.add_widget(button(caption, partial(self.change_mode, mode),
+                                  bg=GREEN if self.mode == mode else MINT,
+                                  fg=WHITE if self.mode == mode else GREEN,
+                                  height=50, size=11))
+        self.body.add_widget(row)
+
+    def _sample_practice(self, n=6):
+        # Reuse verified existing learner data, not invented answers.
+        unique = []
+        seen = set()
+        for item in self.deck:
+            word = (item.get("word") or "").strip()
+            meaning = (item.get("vi") or item.get("meaning") or "").strip()
+            if word and meaning and word not in seen:
+                unique.append(item)
+                seen.add(word)
+        return unique[:n]
+
+    def _grade_quiz(self, correct, reward=10):
+        self.attempts += 1
+        if correct:
+            self.correct += 1
+            self.xp += reward
+            self.streak += 1
+        else:
+            self.streak = 0
+        self.progress["_xp"] = self.xp
+        self.progress["_streak"] = self.streak
+        self._save_progress()
+        self.status.text = "Chính xác! +%d XP" % reward if correct else "Chưa đúng, thử lại nhé."
+        return correct
+
+    def render_fill_exercise(self):
+        self.body.add_widget(label("BÀI TẬP ĐIỀN TỪ", 18, GREEN, True, 42))
+        self._add_practice_modes()
+        items = self._sample_practice(20)
+        if not items:
+            self.body.add_widget(label("Chưa có dữ liệu để luyện điền từ.", height=60))
+            return
+        item = items[self.fill_index % len(items)]
+        self.body.add_widget(label("Nhập từ tương ứng với nghĩa:", 14, MUTED, height=38))
+        self.body.add_widget(label((item.get("vi") or item.get("meaning"))[:160],
+                                   18, INK, True, 90, align="center"))
+        answer = TextInput(multiline=False, hint_text="Nhập từ tiếng Trung hoặc Anh",
+                           font_name=CJK_FONT if item["course"]=="HSK" else FONT,
+                           font_size=dp(20), size_hint_y=None, height=dp(55))
+        self.body.add_widget(answer)
+        self.body.add_widget(button("KIỂM TRA", partial(self.submit_fill, answer, item),
+                                    bg=GREEN, fg=WHITE, height=53))
+        self.body.add_widget(button("BỎ QUA", self.next_fill, bg=MINT,
+                                    fg=GREEN, height=47))
+
+    def submit_fill(self, entry, item):
+        user = unicodedata.normalize("NFC", entry.text).strip().casefold()
+        target = unicodedata.normalize("NFC", item["word"].split("|")[0]).strip().casefold()
+        correct = bool(user) and user == target
+        self._grade_quiz(correct)
+        if correct:
+            self.next_fill()
+        else:
+            self.status.text = "Chưa đúng. Hãy kiểm tra lại chính tả hoặc thử lần nữa."
+
+    def next_fill(self):
+        self.fill_index += 1
+        self.render()
+
+    def render_matching_exercise(self):
+        self.body.add_widget(label("GHÉP CẶP TỪ – NGHĨA", 18, GREEN, True, 42))
+        self._add_practice_modes()
+        if not self.match_pairs:
+            sample = self._sample_practice(4)
+            self.match_pairs = [(x["word"], (x.get("vi") or x.get("meaning"))[:75])
+                                for x in sample]
+            self.match_done = set()
+            self.match_left = None
+            self.match_right = None
+        if len(self.match_pairs) < 2:
+            self.body.add_widget(label("Chưa đủ từ có nghĩa để ghép.", height=60))
+            return
+        shuffled_right = list(range(len(self.match_pairs)))
+        # Stable alternative order; no accidental index-position answer clues.
+        shuffled_right = shuffled_right[1:] + shuffled_right[:1]
+        for i, (word, meaning) in enumerate(self.match_pairs):
+            if i in self.match_done:
+                continue
+            self.body.add_widget(button(word[:70], partial(self.select_match, "left", i),
+                                        bg=SKY if self.match_left==i else WHITE,
+                                        fg=INK, height=53, size=16,
+                                        font=CJK_FONT if self.group.startswith("HSK") else FONT))
+        self.body.add_widget(label("CHỌN NGHĨA TƯƠNG ỨNG", 13, GREEN, True, 28))
+        for i in shuffled_right:
+            if i in self.match_done:
+                continue
+            self.body.add_widget(button(("✓ " if self.match_right==i else "") +
+                                        self.match_pairs[i][1],
+                                        partial(self.select_match, "right", i),
+                                        bg=MINT if self.match_right==i else WHITE,
+                                        fg=INK, height=60, size=13))
+        if len(self.match_done)==len(self.match_pairs):
+            self.body.add_widget(label("Hoàn thành! Bạn đã ghép đủ các cặp.",
+                                       16, GREEN, True, 56))
+            self.body.add_widget(button("CHƠI LẠI", self.reset_matching, bg=GREEN))
+
+    def select_match(self, side, index):
+        if side == "left":
+            self.match_left = index
+        else:
+            self.match_right = index
+        if self.match_left is not None and self.match_right is not None:
+            correct = self.match_left == self.match_right
+            self._grade_quiz(correct, 5)
+            if correct:
+                self.match_done.add(index)
+            self.match_left = None
+            self.match_right = None
+        self.render()
+
+    def reset_matching(self):
+        self.match_pairs = []
+        self.match_done = set()
+        random.shuffle(self.deck)
+        self.render()
+
+    def render_reading(self):
+        self.body.add_widget(label("ĐỌC HIỂU TƯƠNG TÁC", 20, GREEN, True, 50))
+        available = [p for p in self.reading_passages if p.get("group") == self.group]
+        if not available:
+            self.body.add_widget(label("Cấp độ này chưa có bài đọc biên soạn.",
+                                       13, MUTED, height=65))
+            return
+        passage = available[self.reading_index % len(available)]
+        self.body.add_widget(label(passage["title"] + "  •  " + self.group,
+                                   17, GREEN, True, 46))
+        for sentence in passage["sentences"]:
+            panel = Panel(color=WHITE, radius=16, orientation="vertical",
+                          padding=dp(10), spacing=dp(6), size_hint_y=None,
+                          height=dp(205))
+            panel.add_widget(label(sentence["text"], 19, INK, True, 67,
+                                   font=CJK_FONT if passage["language"]=="zh" else FONT))
+            panel.add_widget(label(sentence["vi"], 14, MUTED, height=43))
+            panel.add_widget(button("NGHE CÂU", partial(self.speak_text,
+                                                     sentence["text"], passage["language"]),
+                                    bg=SKY, fg=GREEN, height=46, size=13))
+            self.body.add_widget(panel)
+            words = sentence.get("tokens", [])
+            for start in range(0, len(words), 3):
+                row = BoxLayout(size_hint_y=None, height=dp(45), spacing=dp(5))
+                for word in words[start:start+3]:
+                    callback = (partial(self.open_dictionary, word)
+                                if passage["language"]=="zh"
+                                else partial(self.lookup_english, word))
+                    row.add_widget(button(word, callback, bg=MINT, fg=GREEN,
+                                          size=14, height=44,
+                                          font=CJK_FONT if passage["language"]=="zh" else FONT))
+                self.body.add_widget(row)
+        self.body.add_widget(label(passage["question"], 15, INK, True, 67))
+        for i, choice in enumerate(passage["answers"]):
+            self.body.add_widget(button(choice, partial(self.answer_reading,
+                                      i==passage["correct"]), bg=WHITE, fg=INK,
+                                      height=53, size=14))
+
+    def lookup_english(self, word):
+        entry = None
+        for level in ("English 1", "English 2", "English 3"):
+            entry = next((r for r in self.data.get(level, [])
+                          if r["word"].casefold() == word.casefold()), None)
+            if entry:
+                break
+        if not entry:
+            self.status.text = "Từ chưa có trong dữ liệu English: " + word
+            return
+        body = BoxLayout(orientation="vertical", padding=dp(14), spacing=dp(10))
+        body.add_widget(label(entry["word"], 24, GREEN, True, 65, align="center"))
+        body.add_widget(label(entry.get("ipa") or "IPA chưa có dữ liệu", 17,
+                              MUTED, height=40, align="center"))
+        body.add_widget(label(entry.get("vi") or "Chưa có nghĩa tiếng Việt",
+                              16, INK, height=90))
+        body.add_widget(label((entry.get("meaning") or "")[:180], 13,
+                              MUTED, height=100))
+        body.add_widget(button("NGHE PHÁT ÂM",
+                               partial(self.pronounce_item, entry), bg=SKY, fg=GREEN))
+        popup = Popup(title="Tra từ English", content=body,
+                      size_hint=(0.9, 0.72), auto_dismiss=True)
+        body.add_widget(button("ĐÓNG", lambda: popup.dismiss(), bg=GREEN))
+        popup.open()
+
+    def speak_text(self, text, language):
+        ok, message = self.pronouncer.speak(text, language)
+        self.status.text = message
+        return ok
+
+    def answer_reading(self, correct):
+        self._grade_quiz(correct)
+        if correct:
+            self.status.text = "Bạn đã hiểu bài đọc. +10 XP"
+        self.render()
+
+    def render_speaking(self):
+        self.body.add_widget(label("LUYỆN NÓI – GHI ÂM", 20, GREEN, True, 50))
+        if not self.deck:
+            self.body.add_widget(label("Chưa có từ để thực hành.", height=60))
+            return
+        item = self.deck[self.index]
+        self.body.add_widget(label(item["word"], 30, INK, True, 91,
+                                   font=CJK_FONT if item["course"]=="HSK" else FONT,
+                                   align="center"))
+        self.body.add_widget(label(item["reading"] if item["course"]=="HSK"
+                                   else item.get("ipa",""), 17, GREEN,
+                                   height=42, align="center"))
+        self.body.add_widget(label(item.get("vi") or item.get("meaning"), 15,
+                                   MUTED, height=78, align="center"))
+        self.body.add_widget(button("NGHE MẪU", partial(self.pronounce_item, item),
+                                    bg=SKY, fg=GREEN))
+        self.body.add_widget(button("DỪNG GHI ÂM" if self.recording
+                                    else "BẮT ĐẦU GHI ÂM",
+                                    self.stop_recording if self.recording
+                                    else self.request_recording,
+                                    bg=PINK if self.recording else GREEN,
+                                    fg=INK if self.recording else WHITE,
+                                    height=55))
+        self.body.add_widget(button("NGHE LẠI GIỌNG CỦA BẠN", self.play_recording,
+                                    bg=MINT, fg=GREEN))
+        self.body.add_widget(button("TỪ TIẾP THEO", self.next_word, bg=WHITE,
+                                    fg=GREEN))
+        self.body.add_widget(label("Ghi âm lưu trên thiết bị. Chưa có chấm điểm tự động.",
+                                   12, MUTED, height=48))
+
+    def request_recording(self):
+        self.recorder.request_permission(self._record_permission_result)
+
+    def _record_permission_result(self, granted):
+        if not granted:
+            Clock.schedule_once(lambda *_: setattr(
+                self.status, "text", "Cần cấp quyền microphone để ghi âm."), 0)
+            return
+        Clock.schedule_once(lambda *_: self.start_recording(), 0)
+
+    def start_recording(self):
+        ok, message = self.recorder.start()
+        self.recording = ok
+        self.status.text = message
+        self.render()
+
+    def stop_recording(self):
+        ok, message = self.recorder.stop()
+        self.recording = False
+        self.status.text = message
+        self.render()
+
+    def play_recording(self):
+        ok, message = self.recorder.play()
+        self.status.text = message
 
     def render_quiz(self):
         if len(self.deck) < 4:
@@ -483,16 +1170,20 @@ class DolingoApp(App):
             self.index = 0
         item = self.deck[self.index]
         self.body.add_widget(label("THỬ THÁCH KIẾN THỨC", 13, MUTED, True, 30))
+        self._add_practice_modes()
         self.body.add_widget(label("Đúng: %d / %d" % (self.correct, self.attempts),
                                    15, GREEN, True, 34))
         card = self._card(220)
-        card.add_widget(label("CHỌN NGHĨA ĐÚNG CHO TỪ", 12, GOLD, True, 32,
+        card.add_widget(label("CHỌN NGHĨA ĐÚNG CHO TỪ", 12, GREEN, True, 32,
                               align="center"))
-        card.add_widget(label(item["word"], 34, WHITE, True, 95,
+        card.add_widget(label(item["word"], 34, INK, True, 95,
                               font=CJK_FONT if item["course"]=="HSK" else FONT,
                               align="center"))
-        card.add_widget(label(item["reading"], 17, MINT, height=40, align="center"))
+        card.add_widget(label(item["reading"] if item["course"] == "HSK" else
+                              item.get("ipa", ""), 17, GREEN, height=40, align="center"))
         self.body.add_widget(card)
+        self.body.add_widget(button("NGHE TỪ", partial(self.pronounce_item, item),
+                                    bg=SKY, fg=GREEN, height=50))
         options = [item]
         others = [r for r in self.deck if r["word"]!=item["word"] and r["meaning"]]
         random.shuffle(others)
@@ -518,6 +1209,73 @@ class DolingoApp(App):
         self._save_progress()
         self.index = (self.index + 1) % len(self.deck)
         self.render()
+
+
+    def open_dictionary(self, initial=""):
+        """Search all CVDICT entries in a separate popup; preserve lesson position."""
+        if not self.dictionary.available:
+            self.status.text = "Thiếu dữ liệu CVDICT offline trong bản APK này"
+            return
+        root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(10))
+        title = label("CVDICT  •  TRUNG - VIỆT", 18, GREEN, True, 44)
+        root.add_widget(title)
+        search = TextInput(text=initial, hint_text="Chữ Hán hoặc Pinyin (ni hao)",
+                           multiline=False, font_name=CJK_FONT, font_size=dp(18),
+                           size_hint_y=None, height=dp(52))
+        root.add_widget(search)
+        scroller = ScrollView(do_scroll_x=False)
+        results = BoxLayout(orientation="vertical", spacing=dp(9), size_hint_y=None)
+        results.bind(minimum_height=results.setter("height"))
+        scroller.add_widget(results)
+        root.add_widget(scroller)
+        footer = button("ĐÓNG TỪ ĐIỂN", lambda: popup.dismiss(), height=48)
+        root.add_widget(footer)
+        popup = Popup(title="Tra cứu ngoại tuyến", content=root,
+                      size_hint=(0.96, 0.88), auto_dismiss=True)
+
+        def save_word(entry):
+            key = entry["simplified"]
+            if key not in self.saved_words:
+                self.saved_words.append(key)
+                self.progress["_cvdict_saved"] = self.saved_words
+                self._save_progress()
+                self.status.text = "Đã lưu từ: " + key
+
+        def draw(*_):
+            results.clear_widgets()
+            query = search.text.strip()
+            if not query:
+                results.add_widget(label("Nhập chữ Hán hoặc Pinyin để tra cứu", 14,
+                                         MUTED, height=70))
+                return
+            matches = self.dictionary.lookup(query)
+            if not matches:
+                results.add_widget(label("Không tìm thấy từ phù hợp.", 14,
+                                         MUTED, height=65))
+            for entry in matches:
+                card = Panel(color=WHITE, radius=14, orientation="vertical",
+                             padding=dp(10), spacing=dp(4), size_hint_y=None,
+                             height=dp(202))
+                card.add_widget(label(entry["simplified"][:60], 19, GREEN, True, 30,
+                                      font=CJK_FONT))
+                card.add_widget(label(entry["pinyin"][:95], 13, MUTED, height=25))
+                card.add_widget(label(clean_vi_gloss(entry["meaning"])[:250], 14, INK, height=67))
+                card.add_widget(button("LƯU VÀO SỔ TAY", partial(save_word, entry),
+                                       bg=MINT, fg=GREEN, height=42, size=13))
+                results.add_widget(card)
+
+        search.bind(on_text_validate=draw)
+        root.add_widget(button("TRA TỪ", draw, bg=GREEN, height=48))
+        popup.open()
+        draw()
+
+    def on_stop(self):
+        if getattr(self, "pronouncer", None):
+            self.pronouncer.close()
+        if getattr(self, "recorder", None):
+            self.recorder.close()
+        if getattr(self, "dictionary", None):
+            self.dictionary.close()
 
     def render_search(self):
         self.body.add_widget(label("TRA CỨU TỪ VỰNG", 16, GREEN, True, 45))

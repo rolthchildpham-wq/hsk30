@@ -1,0 +1,5 @@
+English IPA pronunciations are generated at APK build time from the CMU Pronouncing Dictionary (CMUdict), a resource published by Carnegie Mellon University and its contributors.
+Source: https://github.com/cmusphinx/cmudict
+License: BSD-style, see https://github.com/cmusphinx/cmudict/blob/master/LICENSE
+Phonetic transcriptions are approximate General American pronunciations generated from ARPABET, not recorded native audio. Coverage is limited to words found in the source dictionary; unknown terms correctly show that IPA data is not yet available.
+Android text-to-speech plays word audio using the phone's installed voice engine and is independent of this IPA dataset.
