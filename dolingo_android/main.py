@@ -30,6 +30,7 @@ from learning_tools import tone_of_pinyin, review_update, is_due
 ROOT = os.path.dirname(os.path.abspath(__file__))
 HSK_PATH = os.path.join(ROOT, "data", "words_hsk30_real.json")
 EN_PATH = os.path.join(ROOT, "data", "english_learner_thesaurus.json")
+IPA_PATH = os.path.join(ROOT, "data", "english_ipa.json")
 VI_PATH = os.path.join(ROOT, "data", "vi_starter.json")
 CVDICT_PATH = os.path.join(ROOT, "data", "vi_hsk_cvdict.json")
 ILLUSTRATION_DIR = os.path.join(ROOT, "assets", "illustrations")
@@ -322,6 +323,10 @@ def load_courses(dictionary=None):
         })
     with open(EN_PATH, "r", encoding="utf-8") as stream:
         english = json.load(stream)
+    ipa_map = {}
+    if os.path.isfile(IPA_PATH):
+        with open(IPA_PATH, "r", encoding="utf-8") as stream:
+            ipa_map = json.load(stream)
     for item in english.get("entries", []):
         level = str(item.get("level") or "")
         word = str(item.get("word") or "").strip()
@@ -334,7 +339,7 @@ def load_courses(dictionary=None):
                 "word": word,
                 "reading": "",
                 "pos": str(item.get("pos") or ""),
-                "ipa": str(item.get("ipa") or item.get("phonetic") or ""),
+                "ipa": str(item.get("ipa") or item.get("phonetic") or ipa_map.get(word.lower(), "")),
                 "meaning": meaning,
                 "vi": english_vi,
                 "picture": ILLUSTRATED_WORDS.get(word.lower(), "") or ICON_BY_WORD.get(word.lower(), ""),
