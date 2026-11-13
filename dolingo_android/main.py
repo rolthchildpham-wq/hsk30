@@ -115,8 +115,8 @@ def label(text="", size=16, color=INK, bold=False, height=None,
     return widget
 
 
-def button(text, callback, bg=GREEN, fg=WHITE, height=50, size=15):
-    widget = Button(text=text, font_name=FONT, font_size=dp(size), bold=True,
+def button(text, callback, bg=GREEN, fg=WHITE, height=50, size=15, font=None):
+    widget = Button(text=text, font_name=font or FONT, font_size=dp(size), bold=True,
                     color=fg, background_normal="", background_down="",
                     background_color=bg, size_hint_y=None, height=dp(height))
     widget.bind(on_release=lambda *_: callback())
@@ -989,10 +989,10 @@ class DolingoApp(App):
         for i, (word, meaning) in enumerate(self.match_pairs):
             if i in self.match_done:
                 continue
-            self.body.add_widget(button(("✓ " if self.match_left==i else "TỪ: ") +
-                                        word[:70], partial(self.select_match, "left", i),
+            self.body.add_widget(button(word[:70], partial(self.select_match, "left", i),
                                         bg=SKY if self.match_left==i else WHITE,
-                                        fg=INK, height=53, size=16))
+                                        fg=INK, height=53, size=16,
+                                        font=CJK_FONT if self.group.startswith("HSK") else FONT))
         self.body.add_widget(label("CHỌN NGHĨA TƯƠNG ỨNG", 13, GREEN, True, 28))
         for i in shuffled_right:
             if i in self.match_done:
@@ -1056,7 +1056,8 @@ class DolingoApp(App):
                                 if passage["language"]=="zh"
                                 else partial(self.lookup_english, word))
                     row.add_widget(button(word, callback, bg=MINT, fg=GREEN,
-                                          size=14, height=44))
+                                          size=14, height=44,
+                                          font=CJK_FONT if passage["language"]=="zh" else FONT))
                 self.body.add_widget(row)
         self.body.add_widget(label(passage["question"], 15, INK, True, 67))
         for i, choice in enumerate(passage["answers"]):
