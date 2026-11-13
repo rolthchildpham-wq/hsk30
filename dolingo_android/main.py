@@ -19,6 +19,8 @@ from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.spinner import Spinner
 from kivy.uix.textinput import TextInput
+from kivy.uix.popup import Popup
+from cvdict_search import Dictionary
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 HSK_PATH = os.path.join(ROOT, "data", "words_hsk30_real.json")
@@ -286,6 +288,8 @@ class DolingoApp(App):
         select_fonts()
         self.title = "Dolingo | Study Studio"
         self.data = {}
+        self.dictionary = Dictionary()
+        self.saved_words = []
         self.hsk_count = 0
         self.en_count = 0
         self.mode = "learn"
@@ -297,6 +301,7 @@ class DolingoApp(App):
         self.reveal = False
         self.progress = {}
         self._load_progress()
+        self.saved_words = list(self.progress.get("_cvdict_saved", []))
         self.xp = int(self.progress.get("_xp", 0))
         self.streak = int(self.progress.get("_streak", 0))
         self.root_panel = Panel(color=BG, radius=0, orientation="vertical")
@@ -377,7 +382,7 @@ class DolingoApp(App):
         tools.add_widget(button("LUYỆN TẬP", lambda: self.change_mode("quiz"),
                                 bg=GREEN if self.mode=="quiz" else MINT,
                                 fg=WHITE if self.mode=="quiz" else GREEN, height=46))
-        tools.add_widget(button("TÌM TỪ", lambda: self.change_mode("search"),
+        tools.add_widget(button("TỪ ĐIỂN", self.open_dictionary,
                                 bg=GREEN if self.mode=="search" else MINT,
                                 fg=WHITE if self.mode=="search" else GREEN, height=46))
         self.body.add_widget(tools)
@@ -455,6 +460,10 @@ class DolingoApp(App):
         controls = BoxLayout(size_hint_y=None, height=dp(54), spacing=dp(9))
         controls.add_widget(button("TRỘN LẠI", self.shuffle, bg=MINT, fg=GREEN))
         controls.add_widget(button("TỪ TIẾP  →", self.next_word, bg=GREEN))
+        if item["course"] == "HSK":
+            self.body.add_widget(button("TRA CVDICT  •  " + item["word"][:12],
+                                        lambda: self.open_dictionary(item["word"].split("|")[0]),
+                                        bg=MINT, fg=GREEN))
         self.body.add_widget(controls)
         self.body.add_widget(label("Luyện tập để kiểm tra mức độ ghi nhớ.", 13,
                                    MUTED, height=34, align="center"))
@@ -518,6 +527,69 @@ class DolingoApp(App):
         self._save_progress()
         self.index = (self.index + 1) % len(self.deck)
         self.render()
+
+
+    def open_dictionary(self, initial=""):
+        """Search all CVDICT entries in a separate popup; preserve lesson position."""
+        if not self.dictionary.available:
+            self.status.text = "Thiếu dữ liệu CVDICT offline trong bản APK này"
+            return
+        root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(10))
+        title = label("CVDICT  •  TRUNG - VIỆT", 18, GREEN, True, 44)
+        root.add_widget(title)
+        search = TextInput(text=initial, hint_text="Chữ Hán hoặc Pinyin (ni hao)",
+                           multiline=False, font_name=CJK_FONT, font_size=dp(18),
+                           size_hint_y=None, height=dp(52))
+        root.add_widget(search)
+        scroller = ScrollView(do_scroll_x=False)
+        results = BoxLayout(orientation="vertical", spacing=dp(9), size_hint_y=None)
+        results.bind(minimum_height=results.setter("height"))
+        scroller.add_widget(results)
+        root.add_widget(scroller)
+        footer = button("ĐÓNG TỪ ĐIỂN", lambda: popup.dismiss(), height=48)
+        root.add_widget(footer)
+        popup = Popup(title="Tra cứu ngoại tuyến", content=root,
+                      size_hint=(0.96, 0.88), auto_dismiss=True)
+
+        def save_word(entry):
+            key = entry["simplified"]
+            if key not in self.saved_words:
+                self.saved_words.append(key)
+                self.progress["_cvdict_saved"] = self.saved_words
+                self._save_progress()
+                self.status.text = "Đã lưu từ: " + key
+
+        def draw(*_):
+            results.clear_widgets()
+            query = search.text.strip()
+            if not query:
+                results.add_widget(label("Nhập chữ Hán hoặc Pinyin để tra cứu", 14,
+                                         MUTED, height=70))
+                return
+            matches = self.dictionary.lookup(query)
+            if not matches:
+                results.add_widget(label("Không tìm thấy từ phù hợp.", 14,
+                                         MUTED, height=65))
+            for entry in matches:
+                card = Panel(color=WHITE, radius=14, orientation="vertical",
+                             padding=dp(10), spacing=dp(4), size_hint_y=None,
+                             height=dp(172))
+                heading = entry["simplified"] + "  [" + entry["pinyin"] + "]"
+                card.add_widget(label(heading[:95], 19, GREEN, True, 46,
+                                      font=CJK_FONT))
+                card.add_widget(label(entry["meaning"][:250], 14, INK, height=67))
+                card.add_widget(button("LƯU VÀO SỔ TAY", partial(save_word, entry),
+                                       bg=MINT, fg=GREEN, height=42, size=13))
+                results.add_widget(card)
+
+        search.bind(on_text_validate=draw)
+        root.add_widget(button("TRA TỪ", draw, bg=GREEN, height=48))
+        popup.open()
+        draw()
+
+    def on_stop(self):
+        if getattr(self, "dictionary", None):
+            self.dictionary.close()
 
     def render_search(self):
         self.body.add_widget(label("TRA CỨU TỪ VỰNG", 16, GREEN, True, 45))
