@@ -152,6 +152,8 @@ class DolingoApp(App):
         self.reveal = False
         self.progress = {}
         self._load_progress()
+        self.xp = int(self.progress.get("_xp", 0))
+        self.streak = int(self.progress.get("_streak", 0))
         self.root_panel = Panel(color=BG, radius=0, orientation="vertical")
         self.root_panel.add_widget(label("DOLINGO", 25, GREEN, True, 58, align="center"))
         self.root_panel.add_widget(label("HỌC NGOẠI NGỮ MỖI NGÀY", 12, MUTED,
@@ -256,6 +258,7 @@ class DolingoApp(App):
     def render(self):
         self.body.clear_widgets()
         self._top_navigation()
+        self.body.add_widget(label("XP: %d     •     Chuỗi đúng: %d" % (self.xp, self.streak), 14, GREEN, True, 32))
         if self.mode == "search":
             self.render_search()
         elif self.mode == "quiz":
@@ -318,6 +321,13 @@ class DolingoApp(App):
         if len(self.deck) < 4:
             self.body.add_widget(label("Chưa đủ dữ liệu luyện tập", height=80))
             return
+        if not self.deck[self.index]["meaning"]:
+            valid = [r for r in self.deck if r["meaning"]]
+            if len(valid) < 4:
+                self.body.add_widget(label("Chưa đủ nghĩa để luyện tập.", height=80))
+                return
+            self.deck = valid
+            self.index = 0
         item = self.deck[self.index]
         self.body.add_widget(label("THỬ THÁCH KIẾN THỨC", 13, MUTED, True, 30))
         self.body.add_widget(label("Đúng: %d / %d" % (self.correct, self.attempts),
@@ -344,9 +354,15 @@ class DolingoApp(App):
         self.attempts += 1
         if is_correct:
             self.correct += 1
+            self.xp += 10
+            self.streak += 1
             self.status.text = "Chính xác! +1 điểm  •  " + self.group
         else:
+            self.streak = 0
             self.status.text = "Cố gắng nhé! Câu tiếp theo  •  " + self.group
+        self.progress["_xp"] = self.xp
+        self.progress["_streak"] = self.streak
+        self._save_progress()
         self.index = (self.index + 1) % len(self.deck)
         self.render()
 
