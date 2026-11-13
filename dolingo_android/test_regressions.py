@@ -95,7 +95,7 @@ assert tone_of_pinyin("") is None
 review = review_update({}, "good", "2026-11-13")
 assert review["due"] == "2026-11-15", review
 assert is_due(review, "2026-11-13") is False
-assert is_due(review, "2026-11-14") is True
+assert is_due(review, "2026-11-15") is True
 assert review_update(review, "again", "2026-11-15")["due"] == "2026-11-15"
 assert "def pronounce_item(self, item)" in code
 assert "def render_tone_practice(self)" in code
