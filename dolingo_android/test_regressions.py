@@ -63,7 +63,8 @@ for word in ("午饭", "学习", "老师"):
 missing = []
 for item in hsk:
     word = str(item.get("word", "")).split("|")[0]
-    gloss = clean(vi.get(word) or item.get("vi") or cv.get(str(item.get("id") or "")
+    gloss = clean(vi.get(word) or item.get("vi")
+                  or cv.get(str(item.get("id") or ""), "")
                   or dictionary.exact_meaning(word))
     if not gloss:
         missing.append(word)
