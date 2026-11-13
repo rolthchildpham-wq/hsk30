@@ -23,7 +23,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip python3-venv autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev cmake libffi-dev libssl-dev
-          python3 -m pip install --user 'buildozer==1.5.0' 'cython==0.29.37' 'setuptools<76' 'Pillow>=9,<12'
+          python3 -m pip install --user 'buildozer==1.5.0' 'cython==0.29.37' 'setuptools<76' 'Pillow>=9,<12' 'fonttools>=4,<5'
       - name: Restore persistent app signing key when configured
         env:
           DOLINGO_DEBUG_KEYSTORE_BASE64: ${{ secrets.DOLINGO_DEBUG_KEYSTORE_BASE64 }}
@@ -67,6 +67,23 @@ jobs:
               with Image.open(file) as im:
                   im.verify()
           print('Illustrations validated:', len(files))
+          PY
+      - name: Bundle reliable CJK font for Android
+        run: |
+          mkdir -p dolingo_android/assets/fonts
+          curl -fL --retry 3 --connect-timeout 20 \
+            "https://raw.githubusercontent.com/notofonts/noto-cjk/main/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf" \
+            -o dolingo_android/assets/fonts/NotoSansCJKsc-Regular.otf
+          test "$(stat -c%s dolingo_android/assets/fonts/NotoSansCJKsc-Regular.otf)" -gt 10000000
+          python3 - <<'PY'
+          from fontTools.ttLib import TTFont
+          f=TTFont("dolingo_android/assets/fonts/NotoSansCJKsc-Regular.otf")
+          chars=set()
+          for table in f["cmap"].tables:
+              chars.update(table.cmap.keys())
+          for char in "午饭学习中文":
+              assert ord(char) in chars, char
+          print("CJK glyph coverage verified")
           PY
       - name: Run screenshot regression checks
         run: |
