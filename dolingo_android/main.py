@@ -26,11 +26,13 @@ from kivy.uix.popup import Popup
 from cvdict_search import Dictionary
 from tts_android import Pronouncer
 from learning_tools import tone_of_pinyin, review_update, is_due
+from voice_recorder import VoiceRecorder
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 HSK_PATH = os.path.join(ROOT, "data", "words_hsk30_real.json")
 EN_PATH = os.path.join(ROOT, "data", "english_learner_thesaurus.json")
 IPA_PATH = os.path.join(ROOT, "data", "english_ipa.json")
+READING_PATH = os.path.join(ROOT, "data", "reading_passages.json")
 VI_PATH = os.path.join(ROOT, "data", "vi_starter.json")
 CVDICT_PATH = os.path.join(ROOT, "data", "vi_hsk_cvdict.json")
 ILLUSTRATION_DIR = os.path.join(ROOT, "assets", "illustrations")
@@ -358,6 +360,19 @@ class DolingoApp(App):
         self.data = {}
         self.dictionary = Dictionary()
         self.pronouncer = Pronouncer()
+        self.recorder = VoiceRecorder(os.path.join(self.user_data_dir, "recordings"))
+        self.recording = False
+        self.reading_index = 0
+        self.fill_index = 0
+        self.match_left = None
+        self.match_right = None
+        self.match_pairs = []
+        self.match_done = set()
+        try:
+            with open(READING_PATH, encoding="utf-8") as stream:
+                self.reading_passages = json.load(stream).get("passages", [])
+        except (OSError, ValueError):
+            self.reading_passages = []
         self.saved_words = []
         self.hsk_count = 0
         self.en_count = 0
@@ -528,6 +543,10 @@ class DolingoApp(App):
                                     self.toggle_pinyin, bg=PEACH, fg=GREEN))
         self.body.add_widget(button("LUYỆN THANH ĐIỆU",
                                     lambda: self.change_mode("tones"), bg=LEMON, fg=GREEN))
+        self.body.add_widget(button("ĐỌC HIỂU TƯƠNG TÁC",
+                                    lambda: self.change_mode("reading"), bg=SKY, fg=GREEN))
+        self.body.add_widget(button("LUYỆN NÓI – GHI ÂM",
+                                    lambda: self.change_mode("speaking"), bg=PINK, fg=GREEN))
         self.body.add_widget(button("LUYỆN TẬP TRẮC NGHIỆM",
                                     lambda: self.change_mode("quiz"),
                                     bg=SKY, fg=GREEN))
@@ -647,6 +666,14 @@ class DolingoApp(App):
             self.render_saved()
         elif self.mode == "search":
             self.render_search()
+        elif self.mode == "reading":
+            self.render_reading()
+        elif self.mode == "speaking":
+            self.render_speaking()
+        elif self.mode == "fill":
+            self.render_fill_exercise()
+        elif self.mode == "match":
+            self.render_matching_exercise()
         elif self.mode == "tones":
             self.render_tone_practice()
         elif self.mode == "quiz":
@@ -859,6 +886,250 @@ class DolingoApp(App):
         self._save_progress()
         self.render()
 
+    def _add_practice_modes(self):
+        row = BoxLayout(size_hint_y=None, height=dp(51), spacing=dp(7))
+        for caption, mode in (("TRẮC NGHIỆM", "quiz"), ("ĐIỀN TỪ", "fill"),
+                              ("GHÉP CẶP", "match")):
+            row.add_widget(button(caption, partial(self.change_mode, mode),
+                                  bg=GREEN if self.mode == mode else MINT,
+                                  fg=WHITE if self.mode == mode else GREEN,
+                                  height=50, size=11))
+        self.body.add_widget(row)
+
+    def _sample_practice(self, n=6):
+        # Reuse verified existing learner data, not invented answers.
+        unique = []
+        seen = set()
+        for item in self.deck:
+            word = (item.get("word") or "").strip()
+            meaning = (item.get("vi") or item.get("meaning") or "").strip()
+            if word and meaning and word not in seen:
+                unique.append(item)
+                seen.add(word)
+        return unique[:n]
+
+    def _grade_quiz(self, correct, reward=10):
+        self.attempts += 1
+        if correct:
+            self.correct += 1
+            self.xp += reward
+            self.streak += 1
+        else:
+            self.streak = 0
+        self.progress["_xp"] = self.xp
+        self.progress["_streak"] = self.streak
+        self._save_progress()
+        self.status.text = "Chính xác! +%d XP" % reward if correct else "Chưa đúng, thử lại nhé."
+        return correct
+
+    def render_fill_exercise(self):
+        self.body.add_widget(label("BÀI TẬP ĐIỀN TỪ", 18, GREEN, True, 42))
+        self._add_practice_modes()
+        items = self._sample_practice(20)
+        if not items:
+            self.body.add_widget(label("Chưa có dữ liệu để luyện điền từ.", height=60))
+            return
+        item = items[self.fill_index % len(items)]
+        self.body.add_widget(label("Nhập từ tương ứng với nghĩa:", 14, MUTED, height=38))
+        self.body.add_widget(label((item.get("vi") or item.get("meaning"))[:160],
+                                   18, INK, True, 90, align="center"))
+        answer = TextInput(multiline=False, hint_text="Nhập từ tiếng Trung hoặc Anh",
+                           font_name=CJK_FONT if item["course"]=="HSK" else FONT,
+                           font_size=dp(20), size_hint_y=None, height=dp(55))
+        self.body.add_widget(answer)
+        self.body.add_widget(button("KIỂM TRA", partial(self.submit_fill, answer, item),
+                                    bg=GREEN, fg=WHITE, height=53))
+        self.body.add_widget(button("BỎ QUA", self.next_fill, bg=MINT,
+                                    fg=GREEN, height=47))
+
+    def submit_fill(self, entry, item):
+        user = unicodedata.normalize("NFC", entry.text).strip().casefold()
+        target = unicodedata.normalize("NFC", item["word"].split("|")[0]).strip().casefold()
+        correct = bool(user) and user == target
+        self._grade_quiz(correct)
+        if correct:
+            self.next_fill()
+        else:
+            self.status.text = "Chưa đúng. Hãy kiểm tra lại chính tả hoặc thử lần nữa."
+
+    def next_fill(self):
+        self.fill_index += 1
+        self.render()
+
+    def render_matching_exercise(self):
+        self.body.add_widget(label("GHÉP CẶP TỪ – NGHĨA", 18, GREEN, True, 42))
+        self._add_practice_modes()
+        if not self.match_pairs:
+            sample = self._sample_practice(4)
+            self.match_pairs = [(x["word"], (x.get("vi") or x.get("meaning"))[:75])
+                                for x in sample]
+            self.match_done = set()
+            self.match_left = None
+            self.match_right = None
+        if len(self.match_pairs) < 2:
+            self.body.add_widget(label("Chưa đủ từ có nghĩa để ghép.", height=60))
+            return
+        shuffled_right = list(range(len(self.match_pairs)))
+        # Stable alternative order; no accidental index-position answer clues.
+        shuffled_right = shuffled_right[1:] + shuffled_right[:1]
+        for i, (word, meaning) in enumerate(self.match_pairs):
+            if i in self.match_done:
+                continue
+            self.body.add_widget(button(("✓ " if self.match_left==i else "TỪ: ") +
+                                        word[:70], partial(self.select_match, "left", i),
+                                        bg=SKY if self.match_left==i else WHITE,
+                                        fg=INK, height=53, size=16))
+        self.body.add_widget(label("CHỌN NGHĨA TƯƠNG ỨNG", 13, GREEN, True, 28))
+        for i in shuffled_right:
+            if i in self.match_done:
+                continue
+            self.body.add_widget(button(("✓ " if self.match_right==i else "") +
+                                        self.match_pairs[i][1],
+                                        partial(self.select_match, "right", i),
+                                        bg=MINT if self.match_right==i else WHITE,
+                                        fg=INK, height=60, size=13))
+        if len(self.match_done)==len(self.match_pairs):
+            self.body.add_widget(label("Hoàn thành! Bạn đã ghép đủ các cặp.",
+                                       16, GREEN, True, 56))
+            self.body.add_widget(button("CHƠI LẠI", self.reset_matching, bg=GREEN))
+
+    def select_match(self, side, index):
+        if side == "left":
+            self.match_left = index
+        else:
+            self.match_right = index
+        if self.match_left is not None and self.match_right is not None:
+            correct = self.match_left == self.match_right
+            self._grade_quiz(correct, 5)
+            if correct:
+                self.match_done.add(index)
+            self.match_left = None
+            self.match_right = None
+        self.render()
+
+    def reset_matching(self):
+        self.match_pairs = []
+        self.match_done = set()
+        random.shuffle(self.deck)
+        self.render()
+
+    def render_reading(self):
+        self.body.add_widget(label("ĐỌC HIỂU TƯƠNG TÁC", 20, GREEN, True, 50))
+        available = [p for p in self.reading_passages if p.get("group") == self.group]
+        if not available:
+            self.body.add_widget(label("Cấp độ này chưa có bài đọc biên soạn.",
+                                       13, MUTED, height=65))
+            return
+        passage = available[self.reading_index % len(available)]
+        self.body.add_widget(label(passage["title"] + "  •  " + self.group,
+                                   17, GREEN, True, 46))
+        for sentence in passage["sentences"]:
+            panel = Panel(color=WHITE, radius=16, orientation="vertical",
+                          padding=dp(10), spacing=dp(6), size_hint_y=None,
+                          height=dp(205))
+            panel.add_widget(label(sentence["text"], 19, INK, True, 67,
+                                   font=CJK_FONT if passage["language"]=="zh" else FONT))
+            panel.add_widget(label(sentence["vi"], 14, MUTED, height=43))
+            panel.add_widget(button("NGHE CÂU", partial(self.speak_text,
+                                                     sentence["text"], passage["language"]),
+                                    bg=SKY, fg=GREEN, height=46, size=13))
+            self.body.add_widget(panel)
+            words = sentence.get("tokens", [])
+            for start in range(0, len(words), 3):
+                row = BoxLayout(size_hint_y=None, height=dp(45), spacing=dp(5))
+                for word in words[start:start+3]:
+                    callback = (partial(self.open_dictionary, word)
+                                if passage["language"]=="zh"
+                                else partial(self.lookup_english, word))
+                    row.add_widget(button(word, callback, bg=MINT, fg=GREEN,
+                                          size=14, height=44))
+                self.body.add_widget(row)
+        self.body.add_widget(label(passage["question"], 15, INK, True, 67))
+        for i, choice in enumerate(passage["answers"]):
+            self.body.add_widget(button(choice, partial(self.answer_reading,
+                                      i==passage["correct"]), bg=WHITE, fg=INK,
+                                      height=53, size=14))
+
+    def lookup_english(self, word):
+        for level in ("English 1", "English 2", "English 3"):
+            entries = [r for r in self.data.get(level, [])
+                       if r["word"].casefold() == word.casefold()]
+            if entries:
+                entry=entries[0]
+                self.status.text = entry["word"] + " • " + (
+                    entry.get("ipa") or "Chưa có IPA") + " • " + (
+                    entry.get("vi") or entry.get("meaning") or "Chưa có nghĩa")
+                self.pronounce_item(entry)
+                return
+        self.status.text = "Từ chưa có trong từ điển English hiện tại: " + word
+
+    def speak_text(self, text, language):
+        ok, message = self.pronouncer.speak(text, language)
+        self.status.text = message
+        return ok
+
+    def answer_reading(self, correct):
+        self._grade_quiz(correct)
+        if correct:
+            self.status.text = "Bạn đã hiểu bài đọc. +10 XP"
+        self.render()
+
+    def render_speaking(self):
+        self.body.add_widget(label("LUYỆN NÓI – GHI ÂM", 20, GREEN, True, 50))
+        if not self.deck:
+            self.body.add_widget(label("Chưa có từ để thực hành.", height=60))
+            return
+        item = self.deck[self.index]
+        self.body.add_widget(label(item["word"], 30, INK, True, 91,
+                                   font=CJK_FONT if item["course"]=="HSK" else FONT,
+                                   align="center"))
+        self.body.add_widget(label(item["reading"] if item["course"]=="HSK"
+                                   else item.get("ipa",""), 17, GREEN,
+                                   height=42, align="center"))
+        self.body.add_widget(label(item.get("vi") or item.get("meaning"), 15,
+                                   MUTED, height=78, align="center"))
+        self.body.add_widget(button("NGHE MẪU", partial(self.pronounce_item, item),
+                                    bg=SKY, fg=GREEN))
+        self.body.add_widget(button("DỪNG GHI ÂM" if self.recording
+                                    else "BẮT ĐẦU GHI ÂM",
+                                    self.stop_recording if self.recording
+                                    else self.request_recording,
+                                    bg=PINK if self.recording else GREEN,
+                                    fg=INK if self.recording else WHITE,
+                                    height=55))
+        self.body.add_widget(button("NGHE LẠI GIỌNG CỦA BẠN", self.play_recording,
+                                    bg=MINT, fg=GREEN))
+        self.body.add_widget(button("TỪ TIẾP THEO", self.next_word, bg=WHITE,
+                                    fg=GREEN))
+        self.body.add_widget(label("Ghi âm lưu trên thiết bị. Chưa có chấm điểm tự động.",
+                                   12, MUTED, height=48))
+
+    def request_recording(self):
+        self.recorder.request_permission(self._record_permission_result)
+
+    def _record_permission_result(self, granted):
+        if not granted:
+            Clock.schedule_once(lambda *_: setattr(
+                self.status, "text", "Cần cấp quyền microphone để ghi âm."), 0)
+            return
+        Clock.schedule_once(lambda *_: self.start_recording(), 0)
+
+    def start_recording(self):
+        ok, message = self.recorder.start()
+        self.recording = ok
+        self.status.text = message
+        self.render()
+
+    def stop_recording(self):
+        ok, message = self.recorder.stop()
+        self.recording = False
+        self.status.text = message
+        self.render()
+
+    def play_recording(self):
+        ok, message = self.recorder.play()
+        self.status.text = message
+
     def render_quiz(self):
         if len(self.deck) < 4:
             self.body.add_widget(label("Chưa đủ dữ liệu luyện tập", height=80))
@@ -872,6 +1143,7 @@ class DolingoApp(App):
             self.index = 0
         item = self.deck[self.index]
         self.body.add_widget(label("THỬ THÁCH KIẾN THỨC", 13, MUTED, True, 30))
+        self._add_practice_modes()
         self.body.add_widget(label("Đúng: %d / %d" % (self.correct, self.attempts),
                                    15, GREEN, True, 34))
         card = self._card(220)
@@ -973,6 +1245,8 @@ class DolingoApp(App):
     def on_stop(self):
         if getattr(self, "pronouncer", None):
             self.pronouncer.close()
+        if getattr(self, "recorder", None):
+            self.recorder.close()
         if getattr(self, "dictionary", None):
             self.dictionary.close()
 
