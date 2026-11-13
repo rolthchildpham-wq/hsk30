@@ -113,3 +113,23 @@ ipa = json.loads(ipa_file.read_text(encoding="utf-8"))
 assert len(ipa) >= 800, len(ipa)
 assert ipa.get("hello", "").startswith("/") or len(ipa) >= 1500
 print("PASS: English IPA pronunciations:", len(ipa))
+
+# Dolingo 1.2.7 skill modules and authored reading passages.
+passages = json.loads((ROOT / "data" / "reading_passages.json").read_text(encoding="utf-8"))["passages"]
+assert len(passages) >= 6
+assert {"HSK 1", "HSK 2", "HSK 3", "English 1", "English 2", "English 3"}.issubset(
+    {p["group"] for p in passages})
+for passage in passages:
+    assert passage["sentences"]
+    assert len(passage["answers"]) >= 3
+    assert 0 <= passage["correct"] < len(passage["answers"])
+    assert all(s["tokens"] and s["text"] and s["vi"] for s in passage["sentences"])
+for function in ("render_reading", "render_speaking", "render_fill_exercise",
+                 "render_matching_exercise", "request_recording", "stop_recording",
+                 "play_recording", "answer_reading", "submit_fill", "select_match"):
+    assert "def " + function + "(" in code, function
+from voice_recorder import VoiceRecorder
+recorder = VoiceRecorder(str(ROOT / "test-recordings"))
+assert recorder.play()[0] is False
+assert "android.permissions = RECORD_AUDIO" in spec
+print("PASS: reading passages, tap-to-lookup, fill and match, microphone wiring")
