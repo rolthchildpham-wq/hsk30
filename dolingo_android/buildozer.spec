@@ -4,7 +4,9 @@ package.name = dolingohskfix
 package.domain = org.dolingo.study
 source.dir = .
 source.include_exts = py,csv,json,txt,png,jpg,kv,sqlite3
-version = 1.2.2
+version = 1.2.3
+# Keep application ID stable, and increase this integer for every update.
+android.numeric_version = 10203
 requirements = python3==3.11.9,hostpython3==3.11.9,kivy==2.3.0
 orientation = portrait
 fullscreen = 0
