@@ -1,0 +1,267 @@
+{
+  "license": "Original Dolingo beginner passages, composed for this app",
+  "passages": [
+    {
+      "group": "HSK 1",
+      "title": "Một ngày của tôi",
+      "language": "zh",
+      "sentences": [
+        {
+          "text": "我早上喝水。",
+          "vi": "Buổi sáng tôi uống nước.",
+          "tokens": [
+            "我",
+            "早上",
+            "喝",
+            "水"
+          ]
+        },
+        {
+          "text": "我去学校学习中文。",
+          "vi": "Tôi đến trường học tiếng Trung.",
+          "tokens": [
+            "我",
+            "去",
+            "学校",
+            "学习",
+            "中文"
+          ]
+        },
+        {
+          "text": "中午我吃午饭。",
+          "vi": "Buổi trưa tôi ăn cơm.",
+          "tokens": [
+            "中午",
+            "我",
+            "吃",
+            "午饭"
+          ]
+        }
+      ],
+      "question": "Buổi trưa người kể làm gì?",
+      "answers": [
+        "Ăn trưa",
+        "Đi ngủ",
+        "Đi mua sắm"
+      ],
+      "correct": 0
+    },
+    {
+      "group": "HSK 2",
+      "title": "Cuối tuần cùng bạn",
+      "language": "zh",
+      "sentences": [
+        {
+          "text": "星期六，我和朋友去公园。",
+          "vi": "Thứ bảy, tôi và bạn đến công viên.",
+          "tokens": [
+            "星期六",
+            "我",
+            "和",
+            "朋友",
+            "去",
+            "公园"
+          ]
+        },
+        {
+          "text": "天气很好，我们一起跑步。",
+          "vi": "Thời tiết rất đẹp, chúng tôi cùng chạy bộ.",
+          "tokens": [
+            "天气",
+            "很好",
+            "我们",
+            "一起",
+            "跑步"
+          ]
+        },
+        {
+          "text": "下午我们喝茶。",
+          "vi": "Buổi chiều chúng tôi uống trà.",
+          "tokens": [
+            "下午",
+            "我们",
+            "喝茶"
+          ]
+        }
+      ],
+      "question": "Hai người đã đi đâu?",
+      "answers": [
+        "Công viên",
+        "Sân bay",
+        "Bệnh viện"
+      ],
+      "correct": 0
+    },
+    {
+      "group": "HSK 3",
+      "title": "Kế hoạch học tập",
+      "language": "zh",
+      "sentences": [
+        {
+          "text": "我每天练习听中文。",
+          "vi": "Mỗi ngày tôi luyện nghe tiếng Trung.",
+          "tokens": [
+            "我",
+            "每天",
+            "练习",
+            "听",
+            "中文"
+          ]
+        },
+        {
+          "text": "遇到不懂的词，我会查词典。",
+          "vi": "Gặp từ chưa hiểu, tôi tra từ điển.",
+          "tokens": [
+            "遇到",
+            "不懂",
+            "词",
+            "我",
+            "查",
+            "词典"
+          ]
+        },
+        {
+          "text": "我希望能说得更流利。",
+          "vi": "Tôi hy vọng nói trôi chảy hơn.",
+          "tokens": [
+            "我",
+            "希望",
+            "说",
+            "流利"
+          ]
+        }
+      ],
+      "question": "Khi gặp từ chưa hiểu, người kể làm gì?",
+      "answers": [
+        "Tra từ điển",
+        "Bỏ qua",
+        "Tắt máy"
+      ],
+      "correct": 0
+    },
+    {
+      "group": "English 1",
+      "title": "My Morning",
+      "language": "en",
+      "sentences": [
+        {
+          "text": "I drink water in the morning.",
+          "vi": "Tôi uống nước vào buổi sáng.",
+          "tokens": [
+            "I",
+            "drink",
+            "water",
+            "morning"
+          ]
+        },
+        {
+          "text": "I read a book at home.",
+          "vi": "Tôi đọc sách ở nhà.",
+          "tokens": [
+            "I",
+            "read",
+            "book",
+            "home"
+          ]
+        },
+        {
+          "text": "Then I go to school.",
+          "vi": "Sau đó tôi đến trường.",
+          "tokens": [
+            "I",
+            "go",
+            "school"
+          ]
+        }
+      ],
+      "question": "What does the person read?",
+      "answers": [
+        "A book",
+        "A menu",
+        "A letter"
+      ],
+      "correct": 0
+    },
+    {
+      "group": "English 2",
+      "title": "At the Hotel",
+      "language": "en",
+      "sentences": [
+        {
+          "text": "The guest arrives at the hotel.",
+          "vi": "Khách đến khách sạn.",
+          "tokens": [
+            "guest",
+            "arrives",
+            "hotel"
+          ]
+        },
+        {
+          "text": "The receptionist checks the reservation.",
+          "vi": "Nhân viên lễ tân kiểm tra đặt phòng.",
+          "tokens": [
+            "receptionist",
+            "checks",
+            "reservation"
+          ]
+        },
+        {
+          "text": "The room is ready.",
+          "vi": "Phòng đã sẵn sàng.",
+          "tokens": [
+            "room",
+            "ready"
+          ]
+        }
+      ],
+      "question": "Who checks the reservation?",
+      "answers": [
+        "Receptionist",
+        "Chef",
+        "Driver"
+      ],
+      "correct": 0
+    },
+    {
+      "group": "English 3",
+      "title": "A Workday",
+      "language": "en",
+      "sentences": [
+        {
+          "text": "The manager prepares a meeting.",
+          "vi": "Người quản lý chuẩn bị cuộc họp.",
+          "tokens": [
+            "manager",
+            "prepares",
+            "meeting"
+          ]
+        },
+        {
+          "text": "The team discusses a new project.",
+          "vi": "Nhóm thảo luận một dự án mới.",
+          "tokens": [
+            "team",
+            "discusses",
+            "project"
+          ]
+        },
+        {
+          "text": "Everyone shares an idea.",
+          "vi": "Mọi người chia sẻ một ý tưởng.",
+          "tokens": [
+            "everyone",
+            "shares",
+            "idea"
+          ]
+        }
+      ],
+      "question": "What does the team discuss?",
+      "answers": [
+        "A new project",
+        "A vacation",
+        "A meal"
+      ],
+      "correct": 0
+    }
+  ]
+}
