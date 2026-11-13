@@ -23,7 +23,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip python3-venv autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev cmake libffi-dev libssl-dev
-          python3 -m pip install --user 'buildozer==1.5.0' 'cython==0.29.37' 'setuptools<76' 'Pillow>=9,<12' 'fonttools>=4,<5'
+          python3 -m pip install --user 'buildozer==1.5.0' 'cython==0.29.37' 'setuptools<76' 'Pillow>=9,<12' 'fonttools>=4,<5' 'cmudict>=1.0,<2'
       - name: Restore persistent app signing key when configured
         env:
           DOLINGO_DEBUG_KEYSTORE_BASE64: ${{ secrets.DOLINGO_DEBUG_KEYSTORE_BASE64 }}
@@ -84,6 +84,16 @@ jobs:
           for char in "午饭学习中文":
               assert ord(char) in chars, char
           print("CJK glyph coverage verified")
+          PY
+      - name: Generate real offline English IPA pronunciations
+        run: |
+          python3 dolingo_android/build_ipa.py
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          d=json.loads(Path("dolingo_android/data/english_ipa.json").read_text(encoding="utf-8"))
+          assert len(d)>=800, len(d)
+          print("English IPA entries:",len(d))
           PY
       - name: Run screenshot regression checks
         run: |
