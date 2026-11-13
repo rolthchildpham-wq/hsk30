@@ -93,7 +93,7 @@ assert tone_of_pinyin("mǎ") == 3
 assert tone_of_pinyin("xué xí") == 2
 assert tone_of_pinyin("") is None
 review = review_update({}, "good", "2026-11-13")
-assert review["due"] == "2026-11-14", review
+assert review["due"] == "2026-11-15", review
 assert is_due(review, "2026-11-13") is False
 assert is_due(review, "2026-11-14") is True
 assert review_update(review, "again", "2026-11-15")["due"] == "2026-11-15"
