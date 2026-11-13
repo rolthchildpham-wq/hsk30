@@ -423,7 +423,7 @@ class DolingoApp(App):
         self.body.add_widget(label("Đã xem %d từ  •  Từ %d / %d" %
                                    (viewed, self.index+1, len(self.deck)),
                                    14, GREEN, True, 32))
-        card = self._card(510 if item["picture"] else 385)
+        card = self._card(630 if item["picture"] else 485)
         card.add_widget(label("FLASHCARD  •  " + self.group, 12, GOLD, True, 29))
         if item["picture"]:
             picture_bg = Panel(color=(0.15, 0.37, 0.29, 1), radius=16,
@@ -496,7 +496,7 @@ class DolingoApp(App):
         options.extend(others[:3])
         random.shuffle(options)
         for opt in options:
-            self.body.add_widget(button(opt["meaning"][:110] or "Chưa có nghĩa",
+            self.body.add_widget(button((opt["vi"] or opt["meaning"])[:110] or "Chưa có nghĩa",
                                         partial(self.answer, opt is item),
                                         bg=WHITE, fg=INK, height=70, size=14))
 
@@ -545,7 +545,7 @@ class DolingoApp(App):
                               padding=dp(8), spacing=dp(4))
                 panel.add_widget(label(item["word"]+"  "+item["reading"], 19, GREEN,
                                        True, 35, font=CJK_FONT))
-                panel.add_widget(label((item["meaning"] or "Chưa có nghĩa")[:100],
+                panel.add_widget(label((item["vi"] or item["meaning"] or "Chưa có nghĩa")[:100],
                                        13, MUTED, height=48))
                 results.add_widget(panel)
         search.bind(on_text_validate=search_now)
