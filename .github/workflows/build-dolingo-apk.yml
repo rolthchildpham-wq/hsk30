@@ -24,6 +24,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip python3-venv autoconf automake libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev cmake libffi-dev libssl-dev
           python3 -m pip install --user 'buildozer==1.5.0' 'cython==0.29.37' 'setuptools<76' 'Pillow>=9,<12'
+      - name: Restore persistent app signing key when configured
+        env:
+          DOLINGO_DEBUG_KEYSTORE_BASE64: ${{ secrets.DOLINGO_DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$DOLINGO_DEBUG_KEYSTORE_BASE64" ]; then
+            mkdir -p "$HOME/.android"
+            umask 077
+            printf '%s' "$DOLINGO_DEBUG_KEYSTORE_BASE64" | base64 -d > "$HOME/.android/debug.keystore"
+            keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey > /dev/null
+            echo "Persistent debug signing key restored"
+          else
+            echo "::warning::No persistent signing key. This APK is for fresh install/testing ONLY; it may NOT update an already-installed APK."
+          fi
       - name: Copy official HSK dataset into app
         run: |
           mkdir -p dolingo_android/data
@@ -90,7 +103,7 @@ jobs:
       - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: Dolingo-HSK-Android-APK
+          name: Dolingo-HSK-Android-APK-test-build
           path: dolingo_android/bin/*.apk
           if-no-files-found: error
           retention-days: 30
